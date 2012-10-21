@@ -296,8 +296,22 @@ status_t Camera::takePicture(int msgType)
     ALOGV("takePicture: 0x%x", msgType);
     sp <ICamera> c = mCamera;
     if (c == 0) return NO_INIT;
+#ifdef OMAP_ENHANCEMENT_CPCAM
+    return c->takePicture(msgType, String8());
+#else
     return c->takePicture(msgType);
+#endif
 }
+
+#ifdef OMAP_ENHANCEMENT_CPCAM
+status_t Camera::takePictureWithParameters(int msgType, const String8& params)
+{
+    ALOGV("takePicture: 0x%x", msgType);
+    sp <ICamera> c = mCamera;
+    if (c == 0) return NO_INIT;
+    return c->takePicture(msgType, params);
+}
+#endif
 
 // set preview/capture parameters - key/value pairs
 status_t Camera::setParameters(const String8& params)

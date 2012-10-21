@@ -683,7 +683,14 @@ status_t ATSParser::Stream::parsePES(ABitReader *br) {
             && stream_id != 0xff  // program_stream_directory
             && stream_id != 0xf2  // DSMCC
             && stream_id != 0xf8) {  // H.222.1 type E
+#ifdef OMAP_ENHANCEMENT
+        if (br->getBits(2) != 2) {
+            ALOGE("[%s] Wrong magic number", __func__);
+            return ERROR_MALFORMED;
+        }
+#else
         CHECK_EQ(br->getBits(2), 2u);
+#endif
 
         MY_LOGV("PES_scrambling_control = %u", br->getBits(2));
         MY_LOGV("PES_priority = %u", br->getBits(1));
@@ -712,21 +719,58 @@ status_t ATSParser::Stream::parsePES(ABitReader *br) {
         unsigned PES_header_data_length = br->getBits(8);
         ALOGV("PES_header_data_length = %u", PES_header_data_length);
 
+#ifdef OMAP_ENHANCEMENT
+        int optional_bytes_remaining = PES_header_data_length;
+        unsigned key_field = 0;
+#else
         unsigned optional_bytes_remaining = PES_header_data_length;
+#endif
 
         uint64_t PTS = 0, DTS = 0;
 
         if (PTS_DTS_flags == 2 || PTS_DTS_flags == 3) {
             CHECK_GE(optional_bytes_remaining, 5u);
 
+#ifdef OMAP_ENHANCEMENT
+            unsigned flagsDTS = br->getBits(4);
+            if (flagsDTS != PTS_DTS_flags) {
+                ALOGE("[%s] PTS_DTS_flags = 0x%X, but should be 0x%X", __func__, flagsDTS, PTS_DTS_flags);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(4), PTS_DTS_flags);
+#endif
 
             PTS = ((uint64_t)br->getBits(3)) << 30;
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 1. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
             PTS |= ((uint64_t)br->getBits(15)) << 15;
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 2. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
             PTS |= br->getBits(15);
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 3. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
 
             ALOGV("PTS = 0x%016llx (%.2f)", PTS, PTS / 90000.0);
 
@@ -735,14 +779,46 @@ status_t ATSParser::Stream::parsePES(ABitReader *br) {
             if (PTS_DTS_flags == 3) {
                 CHECK_GE(optional_bytes_remaining, 5u);
 
+#ifdef OMAP_ENHANCEMENT
+                key_field = br->getBits(4);
+                if (key_field != 1u) {
+                    ALOGE("[%s] 4. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                    return ERROR_MALFORMED;
+                }
+#else
                 CHECK_EQ(br->getBits(4), 1u);
+#endif
 
                 DTS = ((uint64_t)br->getBits(3)) << 30;
+#ifdef OMAP_ENHANCEMENT
+                key_field = br->getBits(1);
+                if (key_field != 1u) {
+                    ALOGE("[%s] 5. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                    return ERROR_MALFORMED;
+                }
+#else
                 CHECK_EQ(br->getBits(1), 1u);
+#endif
                 DTS |= ((uint64_t)br->getBits(15)) << 15;
+#ifdef OMAP_ENHANCEMENT
+                key_field = br->getBits(1);
+                if (key_field != 1u) {
+                    ALOGE("[%s] 6. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                    return ERROR_MALFORMED;
+                }
+#else
                 CHECK_EQ(br->getBits(1), 1u);
+#endif
                 DTS |= br->getBits(15);
+#ifdef OMAP_ENHANCEMENT
+                key_field = br->getBits(1);
+                if (key_field != 1u) {
+                    ALOGE("[%s] 7. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                    return ERROR_MALFORMED;
+                }
+#else
                 CHECK_EQ(br->getBits(1), 1u);
+#endif
 
                 ALOGV("DTS = %llu", DTS);
 
@@ -751,21 +827,60 @@ status_t ATSParser::Stream::parsePES(ABitReader *br) {
         }
 
         if (ESCR_flag) {
+#ifdef OMAP_ENHANCEMENT
+            if (optional_bytes_remaining < 6u) {
+                ALOGV("[%s] optional_bytes_remaining = 0x%X, but should be >= 0x%X", __func__, key_field, 6u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_GE(optional_bytes_remaining, 6u);
+#endif
 
             br->getBits(2);
 
             uint64_t ESCR = ((uint64_t)br->getBits(3)) << 30;
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 8. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
             ESCR |= ((uint64_t)br->getBits(15)) << 15;
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 9. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
             ESCR |= br->getBits(15);
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 10. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
 
             ALOGV("ESCR = %llu", ESCR);
             MY_LOGV("ESCR_extension = %u", br->getBits(9));
 
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 11. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
 
             optional_bytes_remaining -= 6;
         }
@@ -773,14 +888,37 @@ status_t ATSParser::Stream::parsePES(ABitReader *br) {
         if (ES_rate_flag) {
             CHECK_GE(optional_bytes_remaining, 3u);
 
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGV("[%s] 12. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
             MY_LOGV("ES_rate = %u", br->getBits(22));
+#ifdef OMAP_ENHANCEMENT
+            key_field = br->getBits(1);
+            if (key_field != 1u) {
+                ALOGE("[%s] 13. key_field = 0x%X, but should be 0x%X", __func__, key_field, 1u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(br->getBits(1), 1u);
+#endif
 
             optional_bytes_remaining -= 3;
         }
 
+#ifdef OMAP_ENHANCEMENT
+        if (optional_bytes_remaining > 0) {
+            MY_LOGV("br->skipBits = %d", optional_bytes_remaining);
+            br->skipBits(optional_bytes_remaining * 8);
+        }
+#else
         br->skipBits(optional_bytes_remaining * 8);
+#endif
 
         // ES data follows.
 
@@ -810,7 +948,14 @@ status_t ATSParser::Stream::parsePES(ABitReader *br) {
                     br->data(), br->numBitsLeft() / 8);
 
             size_t payloadSizeBits = br->numBitsLeft();
+#ifdef OMAP_ENHANCEMENT
+            if (payloadSizeBits % 8 != 0u) {
+                ALOGV("[%s] 14. payloadSizeBits % 8 = 0x%X, but should be 0x%X", __func__, key_field, 0u);
+                return ERROR_MALFORMED;
+            }
+#else
             CHECK_EQ(payloadSizeBits % 8, 0u);
+#endif
 
             ALOGV("There's %d bytes of payload.", payloadSizeBits / 8);
         }
@@ -1095,6 +1240,9 @@ status_t ATSParser::parsePID(
                     PID, continuity_counter, payload_unit_start_indicator,
                     br, &err)) {
             if (err != OK) {
+#ifdef OMAP_ENHANCEMENT
+                ALOGE("[%s] parsing failed with error code 0x%.8X", __func__, err);
+#endif
                 return err;
             }
 
@@ -1158,7 +1306,14 @@ void ATSParser::parseAdaptationField(ABitReader *br, unsigned PID) {
 
         CHECK_GE(adaptation_field_length * 8, numBitsRead);
 
+#ifdef OMAP_ENHANCEMENT
+        ALOGV("adaptation_field_length = %u", adaptation_field_length);
+        size_t nBitsSkip = br->numBitsLeft() < adaptation_field_length * 8  - numBitsRead ?
+                br->numBitsLeft() : adaptation_field_length * 8  - numBitsRead;
+        br->skipBits(nBitsSkip);
+#else
         br->skipBits(adaptation_field_length * 8 - numBitsRead);
+#endif
     }
 }
 
@@ -1168,7 +1323,16 @@ status_t ATSParser::parseTS(ABitReader *br) {
     unsigned sync_byte = br->getBits(8);
     CHECK_EQ(sync_byte, 0x47u);
 
+#ifdef OMAP_ENHANCEMENT
+    unsigned nTransportError = br->getBits(1);
+    ALOGV("transport_error_indicator = %u", nTransportError);
+    if (nTransportError != 0) {
+        ALOGE("Detected malformed transport stream");
+        return ERROR_MALFORMED;
+    }
+#else
     MY_LOGV("transport_error_indicator = %u", br->getBits(1));
+#endif
 
     unsigned payload_unit_start_indicator = br->getBits(1);
     ALOGV("payload_unit_start_indicator = %u", payload_unit_start_indicator);

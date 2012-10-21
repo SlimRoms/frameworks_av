@@ -121,6 +121,9 @@ public:
 
             // take a picture - picture returned from callback
             status_t    takePicture(int msgType);
+#ifdef OMAP_ENHANCEMENT_CPCAM
+            status_t    takePictureWithParameters(int msgType, const String8& params);
+#endif
 
             // set preview/capture parameters - key/value pairs
             status_t    setParameters(const String8& params);

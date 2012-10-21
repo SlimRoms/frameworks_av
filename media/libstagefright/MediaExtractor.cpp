@@ -37,6 +37,10 @@
 #include "include/ExtendedExtractor.h"
 #endif
 
+#ifdef OMAP_ENHANCEMENT
+#include "include/AVIExtractor.h"
+#endif
+
 #include "matroska/MatroskaExtractor.h"
 
 #include <media/stagefright/foundation/AMessage.h>
@@ -137,6 +141,12 @@ sp<MediaExtractor> MediaExtractor::Create(
         ret = new PCMExtractor(source);
 #endif
     }
+
+#ifdef OMAP_ENHANCEMENT
+    else if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_AVI)) {
+        ret = new AVIExtractor(source);
+    }
+#endif
 
     if (ret != NULL) {
        if (isDrm) {

@@ -37,6 +37,10 @@
 #include "include/ExtendedExtractor.h"
 #endif
 
+#ifdef OMAP_ENHANCEMENT
+#include "include/AVIExtractor.h"
+#endif
+
 #include "matroska/MatroskaExtractor.h"
 
 #include <media/stagefright/foundation/AMessage.h>
@@ -127,6 +131,10 @@ void DataSource::RegisterDefaultSniffers() {
     RegisterSniffer(SniffWVM);
 #ifdef QCOM_HARDWARE
     RegisterSniffer(SniffExtendedExtractor);
+#endif
+
+#ifdef OMAP_ENHANCEMENT
+    RegisterSniffer(SniffAVI);
 #endif
 
     char value[PROPERTY_VALUE_MAX];

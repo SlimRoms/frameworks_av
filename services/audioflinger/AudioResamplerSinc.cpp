@@ -510,7 +510,9 @@ void AudioResamplerSinc::resample(int32_t* out, size_t outFrameCount,
     // changes. Or load two pointers one for up and one for down in the init function.
     // Not critical now since the read functions are fast, but would be important if read was slow.
     if (mConstants == &veryHighQualityConstants && readResampleCoefficients) {
-        mFirCoefs = readResampleCoefficients( mInSampleRate <= mSampleRate );
+        ALOGV("get coefficient from libmm-audio resampler library");
+        mFirCoefs = (mInSampleRate <= mSampleRate) ? readResampleCoefficients(true) :
+                readResampleCoefficients(false);
     } else {
         mFirCoefs = (mInSampleRate <= mSampleRate) ? mFirCoefsUp : mFirCoefsDown;
     }

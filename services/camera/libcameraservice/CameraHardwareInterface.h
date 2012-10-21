@@ -24,6 +24,9 @@
 #include <ui/GraphicBuffer.h>
 #include <camera/Camera.h>
 #include <camera/CameraParameters.h>
+#ifdef OMAP_ENHANCEMENT_CPCAM
+#include <camera/ShotParameters.h>
+#endif
 #include <system/window.h>
 #include <hardware/camera.h>
 
@@ -367,6 +370,18 @@ public:
             return mDevice->ops->take_picture(mDevice);
         return INVALID_OPERATION;
     }
+
+#ifdef OMAP_ENHANCEMENT_CPCAM
+    status_t takePictureWithParameters(const ShotParameters &params)
+    {
+        ALOGV("%s(%s)", __FUNCTION__, mName.string());
+        if (mDeviceExtendedOps.take_picture_with_parameters) {
+            return mDeviceExtendedOps.take_picture_with_parameters(mDevice,
+                    params.flatten().string());
+        }
+        return INVALID_OPERATION;
+    }
+#endif
 
     /**
      * Cancel a picture that was started with takePicture.  Calling this

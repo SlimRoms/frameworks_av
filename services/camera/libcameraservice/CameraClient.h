@@ -45,7 +45,11 @@ public:
     virtual void            releaseRecordingFrame(const sp<IMemory>& mem);
     virtual status_t        autoFocus();
     virtual status_t        cancelAutoFocus();
+#ifdef OMAP_ENHANCEMENT_CPCAM
+    virtual status_t        takePicture(int msgType, const String8& params);
+#else
     virtual status_t        takePicture(int msgType);
+#endif
     virtual status_t        setParameters(const String8& params);
     virtual String8         getParameters() const;
     virtual status_t        sendCommand(int32_t cmd, int32_t arg1, int32_t arg2);

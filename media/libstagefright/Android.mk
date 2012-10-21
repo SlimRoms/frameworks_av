@@ -57,6 +57,10 @@ LOCAL_SRC_FILES:=                         \
         mp4/FragmentedMP4Parser.cpp       \
         mp4/TrackFragment.cpp             \
 
+ifeq ($(OMAP_ENHANCEMENT), true)
+LOCAL_SRC_FILES +=  AVIExtractor.cpp
+endif
+
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/stagefright/timedtext \
         $(TOP)/frameworks/native/include/media/hardware \

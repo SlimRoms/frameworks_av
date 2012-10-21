@@ -91,7 +91,11 @@ public:
      * CAMERA_MSG_SHUTTER, CAMERA_MSG_RAW_IMAGE, CAMERA_MSG_COMPRESSED_IMAGE,
      * and CAMERA_MSG_POSTVIEW_FRAME. Any other message types will be ignored.
      */
+#ifdef OMAP_ENHANCEMENT_CPCAM
+    virtual status_t        takePicture(int msgType, const String8& params) = 0;
+#else
     virtual status_t        takePicture(int msgType) = 0;
+#endif
 
     // set preview/capture parameters - key/value pairs
     virtual status_t        setParameters(const String8& params) = 0;

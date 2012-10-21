@@ -202,12 +202,19 @@ public:
     }
 
     // take a picture - returns an IMemory (ref-counted mmap)
+#ifdef OMAP_ENHANCEMENT_CPCAM
+    status_t takePicture(int msgType, const String8& params)
+#else
     status_t takePicture(int msgType)
+#endif
     {
         ALOGV("takePicture: 0x%x", msgType);
         Parcel data, reply;
         data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
         data.writeInt32(msgType);
+#ifdef OMAP_ENHANCEMENT_CPCAM
+        data.writeString8(params);
+#endif
         remote()->transact(TAKE_PICTURE, data, &reply);
         status_t ret = reply.readInt32();
         return ret;
@@ -369,7 +376,12 @@ status_t BnCamera::onTransact(
             ALOGV("TAKE_PICTURE");
             CHECK_INTERFACE(ICamera, data, reply);
             int msgType = data.readInt32();
+#ifdef OMAP_ENHANCEMENT_CPCAM
+            String8 params(data.readString8());
+            reply->writeInt32(takePicture(msgType, params));
+#else
             reply->writeInt32(takePicture(msgType));
+#endif
             return NO_ERROR;
         } break;
         case SET_PARAMETERS: {
