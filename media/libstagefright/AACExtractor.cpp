@@ -189,7 +189,7 @@ AACExtractor::AACExtractor(
                 continue;
             }
             if ((frameSize = getAdtsFrameLength(source, offset, NULL)) == 0) {
-                return;
+                break;
             }
 
             mOffsetVector.push(offset);
