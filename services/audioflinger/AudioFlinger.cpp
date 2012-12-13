@@ -6216,6 +6216,12 @@ AudioFlinger::DirectAudioTrack::DirectAudioTrack(const sp<AudioFlinger>& audioFl
 }
 
 AudioFlinger::DirectAudioTrack::~DirectAudioTrack() {
+
+#ifdef SRS_PROCESSING
+    LOGD("SRS_Processing - DirectAudioTrack - OutNotify_Init: %p TID %d\n", this, gettid());
+    SRS_Processing::ProcessOutNotify(SRS_Processing::AUTO, this, false);
+#endif
+
     if (mFlag & AUDIO_OUTPUT_FLAG_LPA) {
         requestAndWaitForEffectsThreadExit();
         mAudioFlinger->deregisterClient(mAudioFlingerClient);
