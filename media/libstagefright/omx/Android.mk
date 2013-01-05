@@ -35,6 +35,9 @@ LOCAL_SHARED_LIBRARIES :=               \
 
 ifeq ($(DTS_CODEC_M_), true)
   LOCAL_CFLAGS += -DDTS_CODEC_M_
+
+ifeq ($(BOARD_USES_PROPRIETARY_OMX),SAMSUNG)
+LOCAL_CFLAGS     += -DSAMSUNG_OMX
 endif
 
 LOCAL_MODULE:= libstagefright_omx
