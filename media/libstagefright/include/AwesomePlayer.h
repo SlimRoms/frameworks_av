@@ -343,6 +343,8 @@ private:
     size_t countTracks() const;
 
 #ifdef QCOM_ENHANCED_AUDIO
+    bool inSupportedTunnelFormats(const char * mime);
+
     //Flag to check if tunnel mode audio is enabled
     bool mIsTunnelAudio;
 #endif
