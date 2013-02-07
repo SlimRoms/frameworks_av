@@ -83,17 +83,6 @@ AudioSource::AudioSource(
                     this,
                     frameCount);
         mInitCheck = mRecord->initCheck();
-
-        //configure the auto ramp start duration
-        mAutoRampStartUs = kAutoRampStartUs;
-        uint32_t playbackLatencyMs = 0;
-        if (AudioSystem::getOutputLatency(&playbackLatencyMs,
-                                          AUDIO_STREAM_DEFAULT) == OK) {
-            if (2*playbackLatencyMs*1000LL > kAutoRampStartUs) {
-                mAutoRampStartUs = 2*playbackLatencyMs*1000LL;
-            }
-        }
-        ALOGD("Start autoramp from %lld", mAutoRampStartUs);
     } else {
         mInitCheck = status;
     }
@@ -249,14 +238,14 @@ status_t AudioSource::read(
     int64_t timeUs;
     CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
     int64_t elapsedTimeUs = timeUs - mStartTimeUs;
-    if (elapsedTimeUs < mAutoRampStartUs) {
+    if (elapsedTimeUs < kAutoRampStartUs) {
         memset((uint8_t *) buffer->data(), 0, buffer->range_length());
-    } else if (elapsedTimeUs < mAutoRampStartUs + kAutoRampDurationUs) {
+    } else if (elapsedTimeUs < kAutoRampStartUs + kAutoRampDurationUs) {
         int32_t autoRampDurationFrames =
                     (kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL;
 
         int32_t autoRampStartFrames =
-                    (mAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
+                    (kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
 
         int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
         rampVolume(nFrames, autoRampDurationFrames,

@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -107,7 +106,13 @@ sp<MediaExtractor> MediaExtractor::Create(
             ret = new MPEG4Extractor(source);
         }
 #ifdef QCOM_ENHANCED_AUDIO
-       bCheckExtendedExtractor = true;
+        char tunnelDecode[PROPERTY_VALUE_MAX];
+        ALOGV("MediaExtractor::Create checking tunnel.decode");
+        property_get("tunnel.decode",tunnelDecode,"0");
+        if( (strncmp("true",tunnelDecode,4) == 0) || (atoi(tunnelDecode)) ) {
+            bCheckExtendedExtractor = true;
+            ALOGV("MediaExtractor::Create detected tunnel.decode as true...");
+        }
 #endif
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG)) {
         ret = new MP3Extractor(source, meta);

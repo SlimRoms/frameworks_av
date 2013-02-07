@@ -1204,15 +1204,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         if (desc != NULL) {
             ALOGV("setParameters for mAudioTracks size %d desc %p",mDirectAudioTracks.size(),desc);
             desc->stream->common.set_parameters(&desc->stream->common, keyValuePairs.string());
-            AudioParameter param = AudioParameter(keyValuePairs);
-            String8 key = String8(AudioParameter::keyRouting);
-            int device;
-            if (param.getInt(key, device) == NO_ERROR) {
-                if(mLPAEffectChain != NULL){
-                    mLPAEffectChain->setDevice_l(device);
-                    audioConfigChanged_l(AudioSystem::EFFECT_CONFIG_CHANGED, 0, NULL);
-                }
-            }
+            return NO_ERROR;
         }
     }
 #endif
@@ -6177,12 +6169,9 @@ AudioFlinger::DirectAudioTrack::~DirectAudioTrack() {
     AudioSystem::releaseOutput(mOutput);
     releaseWakeLock();
 
-    {
-        Mutex::Autolock _l(pmLock);
-        if (mPowerManager != 0) {
-            sp<IBinder> binder = mPowerManager->asBinder();
-            binder->unlinkToDeath(mDeathRecipient);
-        }
+    if (mPowerManager != 0) {
+        sp<IBinder> binder = mPowerManager->asBinder();
+        binder->unlinkToDeath(mDeathRecipient);
     }
 }
 
@@ -6245,8 +6234,8 @@ void AudioFlinger::DirectAudioTrack::mute(bool muted) {
 }
 
 void AudioFlinger::DirectAudioTrack::setVolume(float left, float right) {
-    mOutputDesc->mVolumeLeft = left;
-    mOutputDesc->mVolumeRight = right;
+    mOutputDesc->mVolumeLeft = 1.0;
+    mOutputDesc->mVolumeRight = 1.0;
 }
 
 int64_t AudioFlinger::DirectAudioTrack::getTimeStamp() {
@@ -6439,8 +6428,8 @@ void AudioFlinger::DirectAudioTrack::releaseWakeLock()
 
 void AudioFlinger::DirectAudioTrack::clearPowerManager()
 {
-    releaseWakeLock();
     Mutex::Autolock _l(pmLock);
+    releaseWakeLock();
     mPowerManager.clear();
 }
 
