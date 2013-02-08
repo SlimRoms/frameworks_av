@@ -1,12 +1,6 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-ifeq ($(BOARD_USES_ALSA_AUDIO),true)
-    ifeq ($(call is-chipset-in-board-platform,msm8960),true)
-        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
-    endif
-endif
-
 include frameworks/av/media/libstagefright/codecs/common/Config.mk
 
 LOCAL_SRC_FILES:=                         \
@@ -77,6 +71,12 @@ else
 LOCAL_C_INCLUDES += $(TOP)/frameworks/native/include/media/openmax
 endif
 
+ifeq ($(BOARD_USES_STE_FMRADIO),true)
+LOCAL_SRC_FILES += \
+        FMRadioSource.cpp                 \
+        PCMExtractor.cpp
+endif
+
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
 LOCAL_SRC_FILES += \
         ExtendedWriter.cpp                \
@@ -93,6 +93,12 @@ ifeq ($(TARGET_QCOM_AUDIO_VARIANT),caf)
         LOCAL_SRC_FILES += LPAPlayer.cpp
     else
         LOCAL_SRC_FILES += LPAPlayerALSA.cpp
+    endif
+    ifeq ($(BOARD_USES_ALSA_AUDIO),true)
+        ifeq ($(call is-chipset-in-board-platform,msm8960),true)
+            LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+            LOCAL_CFLAGS += -DTUNNEL_MODE_SUPPORTS_AMRWB
+        endif
     endif
 LOCAL_CFLAGS += -DQCOM_ENHANCED_AUDIO
 LOCAL_SRC_FILES += TunnelPlayer.cpp
@@ -126,6 +132,7 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
+        libstagefright_mp3dec \
         libstagefright_aacenc \
         libstagefright_matroska \
         libstagefright_timedtext \
@@ -158,6 +165,10 @@ LOCAL_C_INCLUDES += \
 	$(TOP)/hardware/samsung/exynos4/hal/include \
 	$(TOP)/hardware/samsung/exynos4/include
 
+endif
+
+ifeq ($(BOARD_USE_TI_DUCATI_H264_PROFILE), true)
+LOCAL_CFLAGS += -DUSE_TI_DUCATI_H264_PROFILE
 endif
 
 LOCAL_MODULE:= libstagefright

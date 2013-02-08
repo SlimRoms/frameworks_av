@@ -13,9 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//#define LOG_NDEBUG 0
-#define LOG_TAG "AH263Assembler"
-#include <utils/Log.h>
 
 #include "AH263Assembler.h"
 
@@ -103,34 +100,11 @@ ARTPAssembler::AssemblyStatus AH263Assembler::addPacket(
     }
 
     unsigned payloadHeader = U16_AT(buffer->data());
+    CHECK_EQ(payloadHeader >> 11, 0u);  // RR=0
     unsigned P = (payloadHeader >> 10) & 1;
     unsigned V = (payloadHeader >> 9) & 1;
     unsigned PLEN = (payloadHeader >> 3) & 0x3f;
-    unsigned PEBIT = payloadHeader & 7;
-
-    // V=0
-    if (V != 0u) {
-        queue->erase(queue->begin());
-        ++mNextExpectedSeqNo;
-        ALOGW("Packet discarded due to VRC (V != 0)");
-        return MALFORMED_PACKET;
-    }
-
-    // PLEN=0
-    if (PLEN != 0u) {
-        queue->erase(queue->begin());
-        ++mNextExpectedSeqNo;
-        ALOGW("Packet discarded (PLEN != 0)");
-        return MALFORMED_PACKET;
-    }
-
-    // PEBIT=0
-    if (PEBIT != 0u) {
-        queue->erase(queue->begin());
-        ++mNextExpectedSeqNo;
-        ALOGW("Packet discarded (PEBIT != 0)");
-        return MALFORMED_PACKET;
-    }
+    // unsigned PEBIT = payloadHeader & 7;
 
     size_t skip = V + PLEN + (P ? 0 : 2);
 

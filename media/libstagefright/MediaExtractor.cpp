@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +26,7 @@
 #include "include/FragmentedMP4Extractor.h"
 #include "include/WAVExtractor.h"
 #include "include/OggExtractor.h"
+#include "include/PCMExtractor.h"
 #include "include/MPEG2PSExtractor.h"
 #include "include/MPEG2TSExtractor.h"
 #include "include/DRMExtractor.h"
@@ -106,13 +108,7 @@ sp<MediaExtractor> MediaExtractor::Create(
             ret = new MPEG4Extractor(source);
         }
 #ifdef QCOM_ENHANCED_AUDIO
-        char tunnelDecode[PROPERTY_VALUE_MAX];
-        ALOGV("MediaExtractor::Create checking tunnel.decode");
-        property_get("tunnel.decode",tunnelDecode,"0");
-        if( (strncmp("true",tunnelDecode,4) == 0) || (atoi(tunnelDecode)) ) {
-            bCheckExtendedExtractor = true;
-            ALOGV("MediaExtractor::Create detected tunnel.decode as true...");
-        }
+       bCheckExtendedExtractor = true;
 #endif
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG)) {
         ret = new MP3Extractor(source, meta);
@@ -136,6 +132,10 @@ sp<MediaExtractor> MediaExtractor::Create(
         ret = new AACExtractor(source, meta);
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG2PS)) {
         ret = new MPEG2PSExtractor(source);
+#ifdef STE_FM
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        ret = new PCMExtractor(source);
+#endif
     }
 
     if (ret != NULL) {
