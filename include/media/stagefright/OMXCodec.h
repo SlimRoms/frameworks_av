@@ -109,7 +109,7 @@ struct OMXCodec : public MediaSource,
         kRequiresWMAProComponent              = 0x40000000, //2^30
 #endif
 #if defined(OMAP_ENHANCEMENT)
-        kAvoidMemcopyInputRecordingFrames     = 0x20000000,
+	kAvoidMemcopyInputRecordingFrames     = 0x20000000,
 #endif
     };
 

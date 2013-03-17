@@ -92,6 +92,10 @@ LOCAL_SRC_FILES += \
 LOCAL_C_INCLUDES += \
         $(TOP)/hardware/qcom/media/mm-core/inc
 
+ifneq ($(call is-vendor-board-platform,QCOM),true)
+LOCAL_CFLAGS += -DNON_QCOM_TARGET
+endif
+
 ifeq ($(TARGET_QCOM_AUDIO_VARIANT),caf)
     ifeq ($(call is-board-platform-in-list,msm8660 msm7x27a msm7x30),true)
         LOCAL_SRC_FILES += LPAPlayer.cpp

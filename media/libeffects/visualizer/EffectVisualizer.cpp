@@ -421,27 +421,22 @@ int Visualizer_command(effect_handle_t self, uint32_t cmdCode, uint32_t cmdSize,
         }
         memcpy(pReplyData, pCmdData, sizeof(effect_param_t) + sizeof(uint32_t));
         effect_param_t *p = (effect_param_t *)pReplyData;
-        union {
-            char *data;
-            uint32_t *data32;
-        };
-        data = p->data;
         p->status = 0;
         *replySize = sizeof(effect_param_t) + sizeof(uint32_t);
         if (p->psize != sizeof(uint32_t)) {
             p->status = -EINVAL;
             break;
         }
-        switch (data32[0]) {
+        switch (*(uint32_t *)p->data) {
         case VISUALIZER_PARAM_CAPTURE_SIZE:
             ALOGV("get mCaptureSize = %d", pContext->mCaptureSize);
-            data[1] = pContext->mCaptureSize;
+            *((uint32_t *)p->data + 1) = pContext->mCaptureSize;
             p->vsize = sizeof(uint32_t);
             *replySize += sizeof(uint32_t);
             break;
         case VISUALIZER_PARAM_SCALING_MODE:
             ALOGV("get mScalingMode = %d", pContext->mScalingMode);
-            data[1] = pContext->mScalingMode;
+            *((uint32_t *)p->data + 1) = pContext->mScalingMode;
             p->vsize = sizeof(uint32_t);
             *replySize += sizeof(uint32_t);
             break;
@@ -457,26 +452,21 @@ int Visualizer_command(effect_handle_t self, uint32_t cmdCode, uint32_t cmdSize,
         }
         *(int32_t *)pReplyData = 0;
         effect_param_t *p = (effect_param_t *)pCmdData;
-        union {
-            char *data;
-            uint32_t *data32;
-        };
-        data = p->data;
         if (p->psize != sizeof(uint32_t) || p->vsize != sizeof(uint32_t)) {
             *(int32_t *)pReplyData = -EINVAL;
             break;
         }
-        switch (data32[0]) {
+        switch (*(uint32_t *)p->data) {
         case VISUALIZER_PARAM_CAPTURE_SIZE:
-            pContext->mCaptureSize = data[1];
+            pContext->mCaptureSize = *((uint32_t *)p->data + 1);
             ALOGV("set mCaptureSize = %d", pContext->mCaptureSize);
             break;
         case VISUALIZER_PARAM_SCALING_MODE:
-            pContext->mScalingMode = data[1];
+            pContext->mScalingMode = *((uint32_t *)p->data + 1);
             ALOGV("set mScalingMode = %d", pContext->mScalingMode);
             break;
         case VISUALIZER_PARAM_LATENCY:
-            pContext->mLatency = data[1];
+            pContext->mLatency = *((uint32_t *)p->data + 1);
             ALOGV("set mLatency = %d", pContext->mLatency);
             break;
         default:

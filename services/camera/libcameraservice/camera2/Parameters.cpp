@@ -745,7 +745,7 @@ status_t Parameters::initialize(const CameraMetadata *info) {
             0);
 
     params.set(CameraParameters::KEY_VIDEO_FRAME_FORMAT,
-            CameraParameters::PIXEL_FORMAT_ANDROID_OPAQUE);
+            "android-opaque");
 
     recordingHint = false;
     params.set(CameraParameters::KEY_RECORDING_HINT,
