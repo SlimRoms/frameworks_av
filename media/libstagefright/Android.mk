@@ -95,8 +95,13 @@ LOCAL_SRC_FILES += \
         ExtendedExtractor.cpp             \
         QCUtilityClass.cpp
 
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),caf)
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media-caf/mm-core/inc
+else
 LOCAL_C_INCLUDES += \
         $(TOP)/hardware/qcom/media/mm-core/inc
+endif
 
 ifneq ($(call is-vendor-board-platform,QCOM),true)
 LOCAL_CFLAGS += -DNON_QCOM_TARGET
