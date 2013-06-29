@@ -67,6 +67,14 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/tremolo \
         $(TOP)/external/openssl/include \
 
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),caf)
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media-caf/mm-core/inc
+else
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media/mm-core/inc
+endif
+
 LOCAL_SHARED_LIBRARIES := \
         libbinder \
         libcamera_client \
