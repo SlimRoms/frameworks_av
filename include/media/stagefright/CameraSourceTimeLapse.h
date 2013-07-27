@@ -22,6 +22,7 @@
 
 #include <utils/RefBase.h>
 #include <utils/threads.h>
+#include <utils/String16.h>
 
 namespace android {
 
@@ -35,9 +36,11 @@ public:
         const sp<ICamera> &camera,
         const sp<ICameraRecordingProxy> &proxy,
         int32_t cameraId,
+        const String16& clientName,
+        uid_t clientUid,
         Size videoSize,
         int32_t videoFrameRate,
-        const sp<Surface>& surface,
+        const sp<IGraphicBufferProducer>& surface,
         int64_t timeBetweenTimeLapseFrameCaptureUs);
 
     virtual ~CameraSourceTimeLapse();
@@ -108,9 +111,11 @@ private:
         const sp<ICamera> &camera,
         const sp<ICameraRecordingProxy> &proxy,
         int32_t cameraId,
+        const String16& clientName,
+        uid_t clientUid,
         Size videoSize,
         int32_t videoFrameRate,
-        const sp<Surface>& surface,
+        const sp<IGraphicBufferProducer>& surface,
         int64_t timeBetweenTimeLapseFrameCaptureUs);
 
     // Wrapper over CameraSource::signalBufferReturned() to implement quick stop.

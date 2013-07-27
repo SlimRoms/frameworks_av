@@ -21,23 +21,12 @@
 #include "include/ESDS.h"
 
 #include <arpa/inet.h>
-
+#include <cutils/properties.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
-
-#ifdef QCOM_ENHANCED_AUDIO
-#include <QCMediaDefs.h>
-#include <QCMetaData.h>
-#include <QOMX_AudioExtensions.h>
-#include <OMX_QCOMExtns.h>
-#include "include/avc_utils.h"
-
-#include "include/QCUtilityClass.h"
-#endif
-
 
 namespace android {
 
@@ -89,6 +78,11 @@ status_t convertMetaDataToMessage(
         msg->setInt64("durationUs", durationUs);
     }
 
+    int32_t isSync;
+    if (meta->findInt32(kKeyIsSyncFrame, &isSync) && isSync != 0) {
+        msg->setInt32("is-sync-frame", 1);
+    }
+
     if (!strncasecmp("video/", mime, 6)) {
         int32_t width, height;
         CHECK(meta->findInt32(kKeyWidth, &width));
@@ -96,6 +90,13 @@ status_t convertMetaDataToMessage(
 
         msg->setInt32("width", width);
         msg->setInt32("height", height);
+
+        int32_t sarWidth, sarHeight;
+        if (meta->findInt32(kKeySARWidth, &sarWidth)
+                && meta->findInt32(kKeySARHeight, &sarHeight)) {
+            msg->setInt32("sar-width", sarWidth);
+            msg->setInt32("sar-height", sarHeight);
+        }
     } else if (!strncasecmp("audio/", mime, 6)) {
         int32_t numChannels, sampleRate;
         CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
@@ -122,46 +123,6 @@ status_t convertMetaDataToMessage(
         if (meta->findInt32(kKeyIsADTS, &isADTS)) {
             msg->setInt32("is-adts", true);
         }
-#ifdef QCOM_ENHANCED_AUDIO
-        int32_t keyWMAVersion;
-        if (meta->findInt32(kKeyWMAVersion, &keyWMAVersion)) {
-             msg->setInt32("WMA-Version", keyWMAVersion);
-        }
-        int32_t bitRate;
-        int32_t encodeOptions;
-        int32_t blockAlign;
-        int32_t bitspersample;
-        int32_t formattag;
-        int32_t advencopt1;
-        int32_t advencopt2;
-        int32_t VirtualPktSize;
-
-        if (meta->findInt32(kKeyWMABitspersample, &bitspersample)) {
-             msg->setInt32("bsps", bitspersample);
-        }
-        if (meta->findInt32(kKeyWMAFormatTag, &formattag)) {
-             msg->setInt32("fmtt", formattag);
-        }
-        if (meta->findInt32(kKeyWMAAdvEncOpt1, &advencopt1)) {
-             msg->setInt32("ade1", advencopt1);
-        }
-
-        if (meta->findInt32(kKeyWMAAdvEncOpt2, &advencopt2)) {
-             msg->setInt32("ade2", advencopt2);
-        }
-        if (meta->findInt32(kKeyWMAVirPktSize, &VirtualPktSize)) {
-             msg->setInt32("vpks", VirtualPktSize);
-        }
-        if (meta->findInt32(kKeyBitRate, &bitRate)) {
-             msg->setInt32("brte", bitRate);
-        }
-        if (meta->findInt32(kKeyWMAEncodeOpt, &encodeOptions)) {
-             msg->setInt32("eopt", encodeOptions);
-        }
-        if (meta->findInt32(kKeyWMABlockAlign, &blockAlign)) {
-             msg->setInt32("blka", blockAlign);
-        }
-#endif
     }
 
     int32_t maxInputSize;
@@ -414,6 +375,11 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
         meta->setInt64(kKeyDuration, durationUs);
     }
 
+    int32_t isSync;
+    if (msg->findInt32("is-sync-frame", &isSync) && isSync != 0) {
+        meta->setInt32(kKeyIsSyncFrame, 1);
+    }
+
     if (mime.startsWith("video/")) {
         int32_t width;
         int32_t height;
@@ -422,6 +388,13 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             meta->setInt32(kKeyHeight, height);
         } else {
             ALOGW("did not find width and/or height");
+        }
+
+        int32_t sarWidth, sarHeight;
+        if (msg->findInt32("sar-width", &sarWidth)
+                && msg->findInt32("sar-height", &sarHeight)) {
+            meta->setInt32(kKeySARWidth, sarWidth);
+            meta->setInt32(kKeySARHeight, sarHeight);
         }
     } else if (mime.startsWith("audio/")) {
         int32_t numChannels;
@@ -482,6 +455,21 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
 #endif
 }
 
+AString MakeUserAgent() {
+    AString ua;
+    ua.append("stagefright/1.2 (Linux;Android ");
+
+#if (PROPERTY_VALUE_MAX < 8)
+#error "PROPERTY_VALUE_MAX must be at least 8"
+#endif
+
+    char value[PROPERTY_VALUE_MAX];
+    property_get("ro.build.version.release", value, "Unknown");
+    ua.append(value);
+    ua.append(")");
+
+    return ua;
+}
 
 }  // namespace android
 

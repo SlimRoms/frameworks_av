@@ -23,9 +23,11 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <linux/tcp.h>
 #include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 
 #include <media/stagefright/foundation/ABuffer.h>
@@ -37,6 +39,7 @@
 namespace android {
 
 static const size_t kMaxUDPSize = 1500;
+static const int32_t kMaxUDPRetries = 200;
 
 struct ANetworkSession::NetworkThread : public Thread {
     NetworkThread(ANetworkSession *session);
@@ -79,7 +82,8 @@ struct ANetworkSession::Session : public RefBase {
     status_t readMore();
     status_t writeMore();
 
-    status_t sendRequest(const void *data, ssize_t size);
+    status_t sendRequest(
+            const void *data, ssize_t size, bool timeValid, int64_t timeUs);
 
     void setIsRTSPConnection(bool yesno);
 
@@ -87,23 +91,33 @@ protected:
     virtual ~Session();
 
 private:
+    enum {
+        FRAGMENT_FLAG_TIME_VALID = 1,
+    };
+    struct Fragment {
+        uint32_t mFlags;
+        int64_t mTimeUs;
+        sp<ABuffer> mBuffer;
+    };
+
     int32_t mSessionID;
     State mState;
     bool mIsRTSPConnection;
     int mSocket;
     sp<AMessage> mNotify;
     bool mSawReceiveFailure, mSawSendFailure;
+    int32_t mUDPRetries;
 
-    // for TCP / stream data
-    AString mOutBuffer;
-
-    // for UDP / datagrams
-    List<sp<ABuffer> > mOutDatagrams;
+    List<Fragment> mOutFragments;
 
     AString mInBuffer;
 
+    int64_t mLastStallReportUs;
+
     void notifyError(bool send, status_t err, const char *detail);
     void notify(NotificationReason reason);
+
+    void dumpFragmentStats(const Fragment &frag);
 
     DISALLOW_EVIL_CONSTRUCTORS(Session);
 };
@@ -135,7 +149,9 @@ ANetworkSession::Session::Session(
       mSocket(s),
       mNotify(notify),
       mSawReceiveFailure(false),
-      mSawSendFailure(false) {
+      mSawSendFailure(false),
+      mUDPRetries(kMaxUDPRetries),
+      mLastStallReportUs(-1ll) {
     if (mState == CONNECTED) {
         struct sockaddr_in localAddr;
         socklen_t localAddrLen = sizeof(localAddr);
@@ -216,8 +232,8 @@ bool ANetworkSession::Session::wantsToRead() {
 bool ANetworkSession::Session::wantsToWrite() {
     return !mSawSendFailure
         && (mState == CONNECTING
-            || (mState == CONNECTED && !mOutBuffer.empty())
-            || (mState == DATAGRAM && !mOutDatagrams.empty()));
+            || (mState == CONNECTED && !mOutFragments.empty())
+            || (mState == DATAGRAM && !mOutFragments.empty()));
 }
 
 status_t ANetworkSession::Session::readMore() {
@@ -273,8 +289,17 @@ status_t ANetworkSession::Session::readMore() {
         }
 
         if (err != OK) {
-            notifyError(false /* send */, err, "Recvfrom failed.");
-            mSawReceiveFailure = true;
+            if (!mUDPRetries) {
+                notifyError(false /* send */, err, "Recvfrom failed.");
+                mSawReceiveFailure = true;
+            } else {
+                mUDPRetries--;
+                ALOGE("Recvfrom failed, %d/%d retries left",
+                        mUDPRetries, kMaxUDPRetries);
+                err = OK;
+            }
+        } else {
+            mUDPRetries = kMaxUDPRetries;
         }
 
         return err;
@@ -313,6 +338,9 @@ status_t ANetworkSession::Session::readMore() {
 
             sp<ABuffer> packet = new ABuffer(packetSize);
             memcpy(packet->data(), mInBuffer.c_str() + 2, packetSize);
+
+            int64_t nowUs = ALooper::GetNowUs();
+            packet->meta()->setInt64("arrivalTimeUs", nowUs);
 
             sp<AMessage> notify = mNotify->dup();
             notify->setInt32("sessionID", mSessionID);
@@ -399,31 +427,41 @@ status_t ANetworkSession::Session::readMore() {
     return err;
 }
 
+void ANetworkSession::Session::dumpFragmentStats(const Fragment &frag) {
+#if 0
+    int64_t nowUs = ALooper::GetNowUs();
+    int64_t delayMs = (nowUs - frag.mTimeUs) / 1000ll;
+
+    static const int64_t kMinDelayMs = 0;
+    static const int64_t kMaxDelayMs = 300;
+
+    const char *kPattern = "########################################";
+    size_t kPatternSize = strlen(kPattern);
+
+    int n = (kPatternSize * (delayMs - kMinDelayMs))
+                / (kMaxDelayMs - kMinDelayMs);
+
+    if (n < 0) {
+        n = 0;
+    } else if ((size_t)n > kPatternSize) {
+        n = kPatternSize;
+    }
+
+    ALOGI("[%lld]: (%4lld ms) %s\n",
+          frag.mTimeUs / 1000,
+          delayMs,
+          kPattern + kPatternSize - n);
+#endif
+}
+
 status_t ANetworkSession::Session::writeMore() {
     if (mState == DATAGRAM) {
-        CHECK(!mOutDatagrams.empty());
+        CHECK(!mOutFragments.empty());
 
         status_t err;
         do {
-            const sp<ABuffer> &datagram = *mOutDatagrams.begin();
-
-            uint8_t *data = datagram->data();
-            if (data[0] == 0x80 && (data[1] & 0x7f) == 33) {
-                int64_t nowUs = ALooper::GetNowUs();
-
-                uint32_t prevRtpTime = U32_AT(&data[4]);
-
-                // 90kHz time scale
-                uint32_t rtpTime = (nowUs * 9ll) / 100ll;
-                int32_t diffTime = (int32_t)rtpTime - (int32_t)prevRtpTime;
-
-                ALOGV("correcting rtpTime by %.0f ms", diffTime / 90.0);
-
-                data[4] = rtpTime >> 24;
-                data[5] = (rtpTime >> 16) & 0xff;
-                data[6] = (rtpTime >> 8) & 0xff;
-                data[7] = rtpTime & 0xff;
-            }
+            const Fragment &frag = *mOutFragments.begin();
+            const sp<ABuffer> &datagram = frag.mBuffer;
 
             int n;
             do {
@@ -433,24 +471,37 @@ status_t ANetworkSession::Session::writeMore() {
             err = OK;
 
             if (n > 0) {
-                mOutDatagrams.erase(mOutDatagrams.begin());
+                if (frag.mFlags & FRAGMENT_FLAG_TIME_VALID) {
+                    dumpFragmentStats(frag);
+                }
+
+                mOutFragments.erase(mOutFragments.begin());
             } else if (n < 0) {
                 err = -errno;
             } else if (n == 0) {
                 err = -ECONNRESET;
             }
-        } while (err == OK && !mOutDatagrams.empty());
+        } while (err == OK && !mOutFragments.empty());
 
         if (err == -EAGAIN) {
-            if (!mOutDatagrams.empty()) {
-                ALOGI("%d datagrams remain queued.", mOutDatagrams.size());
+            if (!mOutFragments.empty()) {
+                ALOGI("%d datagrams remain queued.", mOutFragments.size());
             }
             err = OK;
         }
 
         if (err != OK) {
-            notifyError(true /* send */, err, "Send datagram failed.");
-            mSawSendFailure = true;
+            if (!mUDPRetries) {
+                notifyError(true /* send */, err, "Send datagram failed.");
+                mSawSendFailure = true;
+            } else {
+                mUDPRetries--;
+                ALOGE("Send datagram failed, %d/%d retries left",
+                        mUDPRetries, kMaxUDPRetries);
+                err = OK;
+            }
+        } else {
+            mUDPRetries = kMaxUDPRetries;
         }
 
         return err;
@@ -476,23 +527,37 @@ status_t ANetworkSession::Session::writeMore() {
     }
 
     CHECK_EQ(mState, CONNECTED);
-    CHECK(!mOutBuffer.empty());
+    CHECK(!mOutFragments.empty());
 
     ssize_t n;
-    do {
-        n = send(mSocket, mOutBuffer.c_str(), mOutBuffer.size(), 0);
-    } while (n < 0 && errno == EINTR);
+    while (!mOutFragments.empty()) {
+        const Fragment &frag = *mOutFragments.begin();
+
+        do {
+            n = send(mSocket, frag.mBuffer->data(), frag.mBuffer->size(), 0);
+        } while (n < 0 && errno == EINTR);
+
+        if (n <= 0) {
+            break;
+        }
+
+        frag.mBuffer->setRange(
+                frag.mBuffer->offset() + n, frag.mBuffer->size() - n);
+
+        if (frag.mBuffer->size() > 0) {
+            break;
+        }
+
+        if (frag.mFlags & FRAGMENT_FLAG_TIME_VALID) {
+            dumpFragmentStats(frag);
+        }
+
+        mOutFragments.erase(mOutFragments.begin());
+    }
 
     status_t err = OK;
 
-    if (n > 0) {
-#if 0
-        ALOGI("out:");
-        hexdump(mOutBuffer.c_str(), n);
-#endif
-
-        mOutBuffer.erase(0, n);
-    } else if (n < 0) {
+    if (n < 0) {
         err = -errno;
     } else if (n == 0) {
         err = -ECONNRESET;
@@ -503,35 +568,69 @@ status_t ANetworkSession::Session::writeMore() {
         mSawSendFailure = true;
     }
 
+#if 0
+    int numBytesQueued;
+    int res = ioctl(mSocket, SIOCOUTQ, &numBytesQueued);
+    if (res == 0 && numBytesQueued > 50 * 1024) {
+        if (numBytesQueued > 409600) {
+            ALOGW("!!! numBytesQueued = %d", numBytesQueued);
+        }
+
+        int64_t nowUs = ALooper::GetNowUs();
+
+        if (mLastStallReportUs < 0ll
+                || nowUs > mLastStallReportUs + 100000ll) {
+            sp<AMessage> msg = mNotify->dup();
+            msg->setInt32("sessionID", mSessionID);
+            msg->setInt32("reason", kWhatNetworkStall);
+            msg->setSize("numBytesQueued", numBytesQueued);
+            msg->post();
+
+            mLastStallReportUs = nowUs;
+        }
+    }
+#endif
+
     return err;
 }
 
-status_t ANetworkSession::Session::sendRequest(const void *data, ssize_t size) {
+status_t ANetworkSession::Session::sendRequest(
+        const void *data, ssize_t size, bool timeValid, int64_t timeUs) {
     CHECK(mState == CONNECTED || mState == DATAGRAM);
 
-    if (mState == DATAGRAM) {
-        CHECK_GE(size, 0);
+    if (size < 0) {
+        size = strlen((const char *)data);
+    }
 
-        sp<ABuffer> datagram = new ABuffer(size);
-        memcpy(datagram->data(), data, size);
-
-        mOutDatagrams.push_back(datagram);
+    if (size == 0) {
         return OK;
     }
+
+    sp<ABuffer> buffer;
 
     if (mState == CONNECTED && !mIsRTSPConnection) {
         CHECK_LE(size, 65535);
 
-        uint8_t prefix[2];
-        prefix[0] = size >> 8;
-        prefix[1] = size & 0xff;
-
-        mOutBuffer.append((const char *)prefix, sizeof(prefix));
+        buffer = new ABuffer(size + 2);
+        buffer->data()[0] = size >> 8;
+        buffer->data()[1] = size & 0xff;
+        memcpy(buffer->data() + 2, data, size);
+    } else {
+        buffer = new ABuffer(size);
+        memcpy(buffer->data(), data, size);
     }
 
-    mOutBuffer.append(
-            (const char *)data,
-            (size >= 0) ? size : strlen((const char *)data));
+    Fragment frag;
+
+    frag.mFlags = 0;
+    if (timeValid) {
+        frag.mFlags = FRAGMENT_FLAG_TIME_VALID;
+        frag.mTimeUs = timeUs;
+    }
+
+    frag.mBuffer = buffer;
+
+    mOutFragments.push_back(frag);
 
     return OK;
 }
@@ -770,6 +869,22 @@ status_t ANetworkSession::createClientOrServer(
             err = -errno;
             goto bail2;
         }
+    } else if (mode == kModeCreateTCPDatagramSessionActive) {
+        int flag = 1;
+        res = setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
+        if (res < 0) {
+            err = -errno;
+            goto bail2;
+        }
+
+        int tos = 224;  // VOICE
+        res = setsockopt(s, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+
+        if (res < 0) {
+            err = -errno;
+            goto bail2;
+        }
     }
 
     err = MakeSocketNonBlocking(s);
@@ -946,7 +1061,8 @@ status_t ANetworkSession::connectUDPSession(
 }
 
 status_t ANetworkSession::sendRequest(
-        int32_t sessionID, const void *data, ssize_t size) {
+        int32_t sessionID, const void *data, ssize_t size,
+        bool timeValid, int64_t timeUs) {
     Mutex::Autolock autoLock(mLock);
 
     ssize_t index = mSessions.indexOfKey(sessionID);
@@ -957,7 +1073,7 @@ status_t ANetworkSession::sendRequest(
 
     const sp<Session> session = mSessions.valueAt(index);
 
-    status_t err = session->sendRequest(data, size);
+    status_t err = session->sendRequest(data, size, timeValid, timeUs);
 
     interrupt();
 
@@ -1091,7 +1207,6 @@ void ANetworkSession::threadLoop() {
                                   clientSocket);
 
                             sp<Session> clientSession =
-                                // using socket sd as sessionID
                                 new Session(
                                         mNextSessionID++,
                                         Session::CONNECTED,

@@ -1,9 +1,5 @@
 /*
  * Copyright (C) 2006-2007 The Android Open Source Project
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- *
- * Not a Contribution, Apache license notifications and license are retained
- * for attribution purposes only
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -209,12 +205,7 @@ int AudioSystem::logToLinear(float volume)
     return volume ? 100 - int(dBConvertInverse * log(volume) + 0.5) : 0;
 }
 
-// DEPRECATED
-status_t AudioSystem::getOutputSamplingRate(int* samplingRate, int streamType) {
-    return getOutputSamplingRate(samplingRate, (audio_stream_type_t)streamType);
-}
-
-status_t AudioSystem::getOutputSamplingRate(int* samplingRate, audio_stream_type_t streamType)
+status_t AudioSystem::getOutputSamplingRate(uint32_t* samplingRate, audio_stream_type_t streamType)
 {
     audio_io_handle_t output;
 
@@ -232,7 +223,7 @@ status_t AudioSystem::getOutputSamplingRate(int* samplingRate, audio_stream_type
 
 status_t AudioSystem::getSamplingRate(audio_io_handle_t output,
                                       audio_stream_type_t streamType,
-                                      int* samplingRate)
+                                      uint32_t* samplingRate)
 {
     OutputDescriptor *outputDesc;
 
@@ -250,17 +241,13 @@ status_t AudioSystem::getSamplingRate(audio_io_handle_t output,
         gLock.unlock();
     }
 
-    ALOGV("getSamplingRate() streamType %d, output %d, sampling rate %d", streamType, output, *samplingRate);
+    ALOGV("getSamplingRate() streamType %d, output %d, sampling rate %u", streamType, output,
+            *samplingRate);
 
     return NO_ERROR;
 }
 
-// DEPRECATED
-status_t AudioSystem::getOutputFrameCount(int* frameCount, int streamType) {
-    return getOutputFrameCount(frameCount, (audio_stream_type_t)streamType);
-}
-
-status_t AudioSystem::getOutputFrameCount(int* frameCount, audio_stream_type_t streamType)
+status_t AudioSystem::getOutputFrameCount(size_t* frameCount, audio_stream_type_t streamType)
 {
     audio_io_handle_t output;
 
@@ -278,7 +265,7 @@ status_t AudioSystem::getOutputFrameCount(int* frameCount, audio_stream_type_t s
 
 status_t AudioSystem::getFrameCount(audio_io_handle_t output,
                                     audio_stream_type_t streamType,
-                                    int* frameCount)
+                                    size_t* frameCount)
 {
     OutputDescriptor *outputDesc;
 
@@ -294,7 +281,8 @@ status_t AudioSystem::getFrameCount(audio_io_handle_t output,
         gLock.unlock();
     }
 
-    ALOGV("getFrameCount() streamType %d, output %d, frameCount %d", streamType, output, *frameCount);
+    ALOGV("getFrameCount() streamType %d, output %d, frameCount %d", streamType, output,
+            *frameCount);
 
     return NO_ERROR;
 }
@@ -373,7 +361,8 @@ status_t AudioSystem::setVoiceVolume(float value)
     return af->setVoiceVolume(value);
 }
 
-status_t AudioSystem::getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames, audio_stream_type_t stream)
+status_t AudioSystem::getRenderPosition(size_t *halFrames, size_t *dspFrames,
+        audio_stream_type_t stream)
 {
     const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
     if (af == 0) return PERMISSION_DENIED;
@@ -385,7 +374,7 @@ status_t AudioSystem::getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames
     return af->getRenderPosition(halFrames, dspFrames, getOutput(stream));
 }
 
-unsigned int AudioSystem::getInputFramesLost(audio_io_handle_t ioHandle) {
+size_t AudioSystem::getInputFramesLost(audio_io_handle_t ioHandle) {
     const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
     unsigned int result = 0;
     if (af == 0) return result;
@@ -414,15 +403,6 @@ void AudioSystem::releaseAudioSessionId(int audioSession) {
         af->releaseAudioSessionId(audioSession);
     }
 }
-
-#ifdef QCOM_FM_ENABLED
-status_t AudioSystem::setFmVolume(float value)
-{
-    const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
-    if (af == 0) return PERMISSION_DENIED;
-    return af->setFmVolume(value);
-}
-#endif
 
 // ---------------------------------------------------------------------------
 
@@ -462,8 +442,10 @@ void AudioSystem::AudioFlingerClient::ioConfigChanged(int event, audio_io_handle
 
         OutputDescriptor *outputDesc =  new OutputDescriptor(*desc);
         gOutputs.add(ioHandle, outputDesc);
-        ALOGV("ioConfigChanged() new output samplingRate %d, format %d channels %#x frameCount %d latency %d",
-                outputDesc->samplingRate, outputDesc->format, outputDesc->channels, outputDesc->frameCount, outputDesc->latency);
+        ALOGV("ioConfigChanged() new output samplingRate %u, format %d channels %#x frameCount %u "
+                "latency %d",
+                outputDesc->samplingRate, outputDesc->format, outputDesc->channels,
+                outputDesc->frameCount, outputDesc->latency);
         } break;
     case OUTPUT_CLOSED: {
         if (gOutputs.indexOfKey(ioHandle) < 0) {
@@ -484,7 +466,8 @@ void AudioSystem::AudioFlingerClient::ioConfigChanged(int event, audio_io_handle
         if (param2 == NULL) break;
         desc = (const OutputDescriptor *)param2;
 
-        ALOGV("ioConfigChanged() new config for output %d samplingRate %d, format %d channels %#x frameCount %d latency %d",
+        ALOGV("ioConfigChanged() new config for output %d samplingRate %u, format %d channels %#x "
+                "frameCount %d latency %d",
                 ioHandle, desc->samplingRate, desc->format,
                 desc->channels, desc->frameCount, desc->latency);
         OutputDescriptor *outputDesc = gOutputs.valueAt(index);
@@ -523,7 +506,7 @@ sp<IAudioPolicyService> AudioSystem::gAudioPolicyService;
 sp<AudioSystem::AudioPolicyServiceClient> AudioSystem::gAudioPolicyServiceClient;
 
 
-// establish binder interface to AudioFlinger service
+// establish binder interface to AudioPolicy service
 const sp<IAudioPolicyService>& AudioSystem::get_audio_policy_service()
 {
     gLock.lock();
@@ -762,6 +745,16 @@ status_t AudioSystem::isStreamActive(audio_stream_type_t stream, bool* state, ui
     return NO_ERROR;
 }
 
+status_t AudioSystem::isStreamActiveRemotely(audio_stream_type_t stream, bool* state,
+        uint32_t inPastMs)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    if (state == NULL) return BAD_VALUE;
+    *state = aps->isStreamActiveRemotely(stream, inPastMs);
+    return NO_ERROR;
+}
+
 status_t AudioSystem::isSourceActive(audio_source_t stream, bool* state)
 {
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
@@ -771,14 +764,14 @@ status_t AudioSystem::isSourceActive(audio_source_t stream, bool* state)
     return NO_ERROR;
 }
 
-int32_t AudioSystem::getPrimaryOutputSamplingRate()
+uint32_t AudioSystem::getPrimaryOutputSamplingRate()
 {
     const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
     if (af == 0) return 0;
     return af->getPrimaryOutputSamplingRate();
 }
 
-int32_t AudioSystem::getPrimaryOutputFrameCount()
+size_t AudioSystem::getPrimaryOutputFrameCount()
 {
     const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
     if (af == 0) return 0;

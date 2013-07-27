@@ -9,6 +9,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:=               \
     ActivityManager.cpp         \
     Crypto.cpp                  \
+    Drm.cpp                     \
     HDCP.cpp                    \
     MediaPlayerFactory.cpp      \
     MediaPlayerService.cpp      \
@@ -17,6 +18,7 @@ LOCAL_SRC_FILES:=               \
     MidiFile.cpp                \
     MidiMetadataRetriever.cpp   \
     RemoteDisplay.cpp           \
+    SharedLibrary.cpp           \
     StagefrightPlayer.cpp       \
     StagefrightRecorder.cpp     \
     TestPlayerStub.cpp          \
@@ -25,10 +27,10 @@ LOCAL_SHARED_LIBRARIES :=       \
     libbinder                   \
     libcamera_client            \
     libcutils                   \
+    liblog                      \
     libdl                       \
     libgui                      \
     libmedia                    \
-    libmedia_native             \
     libsonivox                  \
     libstagefright              \
     libstagefright_foundation   \
@@ -41,16 +43,14 @@ LOCAL_SHARED_LIBRARIES :=       \
 LOCAL_STATIC_LIBRARIES :=       \
     libstagefright_nuplayer     \
     libstagefright_rtsp         \
-    libmedia_helper             \
 
 LOCAL_C_INCLUDES :=                                                 \
     $(call include-path-for, graphics corecg)                       \
     $(TOP)/frameworks/av/media/libstagefright/include               \
-    $(TOP)/frameworks/av/include/media                              \
     $(TOP)/frameworks/av/media/libstagefright/rtsp                  \
     $(TOP)/frameworks/av/media/libstagefright/wifi-display          \
     $(TOP)/frameworks/native/include/media/openmax                  \
-    $(TOP)/external/tremolo/Tremolo
+    $(TOP)/external/tremolo/Tremolo                                 \
 
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     ifeq ($(TARGET_QCOM_MEDIA_VARIANT),caf)

@@ -21,6 +21,7 @@
 #include <binder/Parcel.h>
 #include <binder/IMemory.h>
 #include <media/ICrypto.h>
+#include <media/IDrm.h>
 #include <media/IHDCP.h>
 #include <media/IMediaPlayerService.h>
 #include <media/IMediaRecorder.h>
@@ -42,10 +43,12 @@ enum {
     CREATE_METADATA_RETRIEVER,
     GET_OMX,
     MAKE_CRYPTO,
+    MAKE_DRM,
     MAKE_HDCP,
     ADD_BATTERY_DATA,
     PULL_BATTERY_DATA,
     LISTEN_FOR_REMOTE_DISPLAY,
+    UPDATE_PROXY_CONFIG,
 };
 
 class BpMediaPlayerService: public BpInterface<IMediaPlayerService>
@@ -56,20 +59,18 @@ public:
     {
     }
 
-    virtual sp<IMediaMetadataRetriever> createMetadataRetriever(pid_t pid)
+    virtual sp<IMediaMetadataRetriever> createMetadataRetriever()
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeInt32(pid);
         remote()->transact(CREATE_METADATA_RETRIEVER, data, &reply);
         return interface_cast<IMediaMetadataRetriever>(reply.readStrongBinder());
     }
 
     virtual sp<IMediaPlayer> create(
-            pid_t pid, const sp<IMediaPlayerClient>& client, int audioSessionId) {
+            const sp<IMediaPlayerClient>& client, int audioSessionId) {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeInt32(pid);
         data.writeStrongBinder(client->asBinder());
         data.writeInt32(audioSessionId);
 
@@ -77,11 +78,10 @@ public:
         return interface_cast<IMediaPlayer>(reply.readStrongBinder());
     }
 
-    virtual sp<IMediaRecorder> createMediaRecorder(pid_t pid)
+    virtual sp<IMediaRecorder> createMediaRecorder()
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeInt32(pid);
         remote()->transact(CREATE_MEDIA_RECORDER, data, &reply);
         return interface_cast<IMediaRecorder>(reply.readStrongBinder());
     }
@@ -126,9 +126,17 @@ public:
         return interface_cast<ICrypto>(reply.readStrongBinder());
     }
 
-    virtual sp<IHDCP> makeHDCP() {
+    virtual sp<IDrm> makeDrm() {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
+        remote()->transact(MAKE_DRM, data, &reply);
+        return interface_cast<IDrm>(reply.readStrongBinder());
+    }
+
+    virtual sp<IHDCP> makeHDCP(bool createEncryptionModule) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
+        data.writeInt32(createEncryptionModule);
         remote()->transact(MAKE_HDCP, data, &reply);
         return interface_cast<IHDCP>(reply.readStrongBinder());
     }
@@ -156,6 +164,25 @@ public:
         remote()->transact(LISTEN_FOR_REMOTE_DISPLAY, data, &reply);
         return interface_cast<IRemoteDisplay>(reply.readStrongBinder());
     }
+
+    virtual status_t updateProxyConfig(
+            const char *host, int32_t port, const char *exclusionList) {
+        Parcel data, reply;
+
+        data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
+        if (host == NULL) {
+            data.writeInt32(0);
+        } else {
+            data.writeInt32(1);
+            data.writeCString(host);
+            data.writeInt32(port);
+            data.writeCString(exclusionList);
+        }
+
+        remote()->transact(UPDATE_PROXY_CONFIG, data, &reply);
+
+        return reply.readInt32();
+    }
 };
 
 IMPLEMENT_META_INTERFACE(MediaPlayerService, "android.media.IMediaPlayerService");
@@ -168,11 +195,10 @@ status_t BnMediaPlayerService::onTransact(
     switch (code) {
         case CREATE: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            pid_t pid = data.readInt32();
             sp<IMediaPlayerClient> client =
                 interface_cast<IMediaPlayerClient>(data.readStrongBinder());
             int audioSessionId = data.readInt32();
-            sp<IMediaPlayer> player = create(pid, client, audioSessionId);
+            sp<IMediaPlayer> player = create(client, audioSessionId);
             reply->writeStrongBinder(player->asBinder());
             return NO_ERROR;
         } break;
@@ -206,15 +232,13 @@ status_t BnMediaPlayerService::onTransact(
         } break;
         case CREATE_MEDIA_RECORDER: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            pid_t pid = data.readInt32();
-            sp<IMediaRecorder> recorder = createMediaRecorder(pid);
+            sp<IMediaRecorder> recorder = createMediaRecorder();
             reply->writeStrongBinder(recorder->asBinder());
             return NO_ERROR;
         } break;
         case CREATE_METADATA_RETRIEVER: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            pid_t pid = data.readInt32();
-            sp<IMediaMetadataRetriever> retriever = createMetadataRetriever(pid);
+            sp<IMediaMetadataRetriever> retriever = createMetadataRetriever();
             reply->writeStrongBinder(retriever->asBinder());
             return NO_ERROR;
         } break;
@@ -230,9 +254,16 @@ status_t BnMediaPlayerService::onTransact(
             reply->writeStrongBinder(crypto->asBinder());
             return NO_ERROR;
         } break;
+        case MAKE_DRM: {
+            CHECK_INTERFACE(IMediaPlayerService, data, reply);
+            sp<IDrm> drm = makeDrm();
+            reply->writeStrongBinder(drm->asBinder());
+            return NO_ERROR;
+        } break;
         case MAKE_HDCP: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            sp<IHDCP> hdcp = makeHDCP();
+            bool createEncryptionModule = data.readInt32();
+            sp<IHDCP> hdcp = makeHDCP(createEncryptionModule);
             reply->writeStrongBinder(hdcp->asBinder());
             return NO_ERROR;
         } break;
@@ -256,6 +287,24 @@ status_t BnMediaPlayerService::onTransact(
             reply->writeStrongBinder(display->asBinder());
             return NO_ERROR;
         } break;
+        case UPDATE_PROXY_CONFIG:
+        {
+            CHECK_INTERFACE(IMediaPlayerService, data, reply);
+
+            const char *host = NULL;
+            int32_t port = 0;
+            const char *exclusionList = NULL;
+
+            if (data.readInt32()) {
+                host = data.readCString();
+                port = data.readInt32();
+                exclusionList = data.readCString();
+            }
+
+            reply->writeInt32(updateProxyConfig(host, port, exclusionList));
+
+            return OK;
+        }
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }

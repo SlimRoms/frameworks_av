@@ -1,9 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- *
- * Not a Contribution, Apache license notifications and license are retained
- * for attribution purposes only
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -108,6 +104,7 @@ public:
     virtual status_t unregisterEffect(int id);
     virtual status_t setEffectEnabled(int id, bool enabled);
     virtual bool isStreamActive(audio_stream_type_t stream, uint32_t inPastMs = 0) const;
+    virtual bool isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs = 0) const;
     virtual bool isSourceActive(audio_source_t source) const;
 
     virtual status_t queryDefaultPreProcessing(int audioSession,
@@ -138,9 +135,6 @@ public:
     virtual status_t startTone(audio_policy_tone_t tone, audio_stream_type_t stream);
     virtual status_t stopTone();
     virtual status_t setVoiceVolume(float volume, int delayMs = 0);
-#ifdef QCOM_FM_ENABLED
-    virtual status_t setFmVolume(float volume, int delayMs = 0);
-#endif
 
 private:
                         AudioPolicyService();
@@ -149,11 +143,11 @@ private:
             status_t dumpInternals(int fd);
 
     // Thread used for tone playback and to send audio config commands to audio flinger
-    // For tone playback, using a separate thread is necessary to avoid deadlock with mLock because startTone()
-    // and stopTone() are normally called with mLock locked and requesting a tone start or stop will cause
-    // calls to AudioPolicyService and an attempt to lock mLock.
-    // For audio config commands, it is necessary because audio flinger requires that the calling process (user)
-    // has permission to modify audio settings.
+    // For tone playback, using a separate thread is necessary to avoid deadlock with mLock because
+    // startTone() and stopTone() are normally called with mLock locked and requesting a tone start
+    // or stop will cause calls to AudioPolicyService and an attempt to lock mLock.
+    // For audio config commands, it is necessary because audio flinger requires that the calling
+    // process (user) has permission to modify audio settings.
     class AudioCommandThread : public Thread {
         class AudioCommand;
     public:
@@ -164,10 +158,7 @@ private:
             STOP_TONE,
             SET_VOLUME,
             SET_PARAMETERS,
-            SET_VOICE_VOLUME,
-#ifdef QCOM_FM_ENABLED
-            SET_FM_VOLUME
-#endif
+            SET_VOICE_VOLUME
         };
 
         AudioCommandThread (String8 name);
@@ -188,9 +179,6 @@ private:
                     status_t    parametersCommand(audio_io_handle_t ioHandle,
                                             const char *keyValuePairs, int delayMs = 0);
                     status_t    voiceVolumeCommand(float volume, int delayMs = 0);
-#ifdef QCOM_FM_ENABLED
-                    status_t    fmVolumeCommand(float volume, int delayMs = 0);
-#endif
                     void        insertCommand_l(AudioCommand *command, int delayMs = 0);
 
     private:
@@ -234,13 +222,6 @@ private:
         public:
             float mVolume;
         };
-
-#ifdef QCOM_FM_ENABLED
-        class FmVolumeData {
-        public:
-            float mVolume;
-        };
-#endif
 
         Mutex   mLock;
         Condition mWaitWorkCV;

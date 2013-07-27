@@ -1,9 +1,5 @@
 /*
  * Copyright (C) 2008 The Android Open Source Project
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- *
- * Not a Contribution, Apache license notifications and license are retained
- * for attribution purposes only.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,9 +67,14 @@ public:
     // set audio mode in audio hardware
     static status_t setMode(audio_mode_t mode);
 
-    // returns true in *state if tracks are active on the specified stream or has been active
+    // returns true in *state if tracks are active on the specified stream or have been active
     // in the past inPastMs milliseconds
     static status_t isStreamActive(audio_stream_type_t stream, bool *state, uint32_t inPastMs = 0);
+    // returns true in *state if tracks are active for what qualifies as remote playback
+    // on the specified stream or have been active in the past inPastMs milliseconds. Remote
+    // playback isn't mutually exclusive with local playback.
+    static status_t isStreamActiveRemotely(audio_stream_type_t stream, bool *state,
+            uint32_t inPastMs = 0);
     // returns true in *state if a recorder is currently recording with the specified source
     static status_t isSourceActive(audio_source_t source, bool *state);
 
@@ -91,28 +92,25 @@ public:
     static float linearToLog(int volume);
     static int logToLinear(float volume);
 
-    static status_t getOutputSamplingRate(int* samplingRate, audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
-    static status_t getOutputFrameCount(int* frameCount, audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
-    static status_t getOutputLatency(uint32_t* latency, audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
+    static status_t getOutputSamplingRate(uint32_t* samplingRate,
+            audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
+    static status_t getOutputFrameCount(size_t* frameCount,
+            audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
+    static status_t getOutputLatency(uint32_t* latency,
+            audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
     static status_t getSamplingRate(audio_io_handle_t output,
                                           audio_stream_type_t streamType,
-                                          int* samplingRate);
+                                          uint32_t* samplingRate);
     // returns the number of frames per audio HAL write buffer. Corresponds to
     // audio_stream->get_buffer_size()/audio_stream_frame_size()
     static status_t getFrameCount(audio_io_handle_t output,
                                   audio_stream_type_t stream,
-                                  int* frameCount);
+                                  size_t* frameCount);
     // returns the audio output stream latency in ms. Corresponds to
     // audio_stream_out->get_latency()
     static status_t getLatency(audio_io_handle_t output,
                                audio_stream_type_t stream,
                                uint32_t* latency);
-
-    // DEPRECATED
-    static status_t getOutputSamplingRate(int* samplingRate, int stream = AUDIO_STREAM_DEFAULT);
-
-    // DEPRECATED
-    static status_t getOutputFrameCount(int* frameCount, int stream = AUDIO_STREAM_DEFAULT);
 
     static bool routedToA2dpOutput(audio_stream_type_t streamType);
 
@@ -120,9 +118,6 @@ public:
         audio_channel_mask_t channelMask, size_t* buffSize);
 
     static status_t setVoiceVolume(float volume);
-#ifdef QCOM_FM_ENABLED
-    static status_t setFmVolume(float volume);
-#endif
 
     // return the number of audio frames written by AudioFlinger to audio HAL and
     // audio dsp to DAC since the output on which the specified stream is playing
@@ -133,10 +128,11 @@ public:
     // - BAD_VALUE: invalid parameter
     // NOTE: this feature is not supported on all hardware platforms and it is
     // necessary to check returned status before using the returned values.
-    static status_t getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames, audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
+    static status_t getRenderPosition(size_t *halFrames, size_t *dspFrames,
+            audio_stream_type_t stream = AUDIO_STREAM_DEFAULT);
 
     // return the number of input frames lost by HAL implementation, or 0 if the handle is invalid
-    static unsigned int  getInputFramesLost(audio_io_handle_t ioHandle);
+    static size_t getInputFramesLost(audio_io_handle_t ioHandle);
 
     static int newAudioSessionId();
     static void acquireAudioSessionId(int audioSession);
@@ -151,15 +147,11 @@ public:
         INPUT_CLOSED,
         INPUT_CONFIG_CHANGED,
         STREAM_CONFIG_CHANGED,
-#ifdef QCOM_HARDWARE
-        A2DP_OUTPUT_STATE,
-        EFFECT_CONFIG_CHANGED,
-#endif
         NUM_CONFIG_EVENTS
     };
 
-    // audio output descriptor used to cache output configurations in client process to avoid frequent calls
-    // through IAudioFlinger
+    // audio output descriptor used to cache output configurations in client process to avoid
+    // frequent calls through IAudioFlinger
     class OutputDescriptor {
     public:
         OutputDescriptor()
@@ -173,8 +165,8 @@ public:
     };
 
     // Events used to synchronize actions between audio sessions.
-    // For instance SYNC_EVENT_PRESENTATION_COMPLETE can be used to delay recording start until playback
-    // is complete on another audio session.
+    // For instance SYNC_EVENT_PRESENTATION_COMPLETE can be used to delay recording start until
+    // playback is complete on another audio session.
     // See definitions in MediaSyncEvent.java
     enum sync_event_t {
         SYNC_EVENT_SAME = -1,             // used internally to indicate restart with same event
@@ -194,8 +186,10 @@ public:
     //
     // IAudioPolicyService interface (see AudioPolicyInterface for method descriptions)
     //
-    static status_t setDeviceConnectionState(audio_devices_t device, audio_policy_dev_state_t state, const char *device_address);
-    static audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device, const char *device_address);
+    static status_t setDeviceConnectionState(audio_devices_t device, audio_policy_dev_state_t state,
+                                                const char *device_address);
+    static audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device,
+                                                                const char *device_address);
     static status_t setPhoneState(audio_mode_t state);
     static status_t setForceUse(audio_policy_force_use_t usage, audio_policy_forced_cfg_t config);
     static audio_policy_forced_cfg_t getForceUse(audio_policy_force_use_t usage);
@@ -248,8 +242,8 @@ public:
     static const sp<IAudioPolicyService>& get_audio_policy_service();
 
     // helpers for android.media.AudioManager.getProperty(), see description there for meaning
-    static int32_t getPrimaryOutputSamplingRate();
-    static int32_t getPrimaryOutputFrameCount();
+    static uint32_t getPrimaryOutputSamplingRate();
+    static size_t getPrimaryOutputFrameCount();
 
     // ----------------------------------------------------------------------------
 

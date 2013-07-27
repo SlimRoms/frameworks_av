@@ -18,11 +18,11 @@
 #define LOG_TAG "wfd"
 #include <utils/Log.h>
 
-#include "sink/WifiDisplaySink.h"
 #include "source/WifiDisplaySource.h"
 
 #include <binder/ProcessState.h>
 #include <binder/IServiceManager.h>
+#include <gui/ISurfaceComposer.h>
 #include <gui/SurfaceComposerClient.h>
 #include <media/AudioSystem.h>
 #include <media/IMediaPlayerService.h>
@@ -30,16 +30,16 @@
 #include <media/IRemoteDisplayClient.h>
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/foundation/ADebug.h>
+#include <media/stagefright/foundation/AMessage.h>
+#include <ui/DisplayInfo.h>
 
 namespace android {
 
 static void usage(const char *me) {
     fprintf(stderr,
             "usage:\n"
-            "           %s -c host[:port]\tconnect to wifi source\n"
-            "               -u uri        \tconnect to an rtsp uri\n"
-            "               -l ip[:port] \tlisten on the specified port "
-            "(create a sink)\n",
+            "           %s -l iface[:port]\tcreate a wifi display source\n"
+            "               -f(ilename)  \tstream media\n",
             me);
 }
 
@@ -47,7 +47,7 @@ struct RemoteDisplayClient : public BnRemoteDisplayClient {
     RemoteDisplayClient();
 
     virtual void onDisplayConnected(
-            const sp<ISurfaceTexture> &surfaceTexture,
+            const sp<IGraphicBufferProducer> &bufferProducer,
             uint32_t width,
             uint32_t height,
             uint32_t flags);
@@ -67,7 +67,7 @@ private:
     bool mDone;
 
     sp<SurfaceComposerClient> mComposerClient;
-    sp<ISurfaceTexture> mSurfaceTexture;
+    sp<IGraphicBufferProducer> mSurfaceTexture;
     sp<IBinder> mDisplayBinder;
 
     DISALLOW_EVIL_CONSTRUCTORS(RemoteDisplayClient);
@@ -83,29 +83,31 @@ RemoteDisplayClient::~RemoteDisplayClient() {
 }
 
 void RemoteDisplayClient::onDisplayConnected(
-        const sp<ISurfaceTexture> &surfaceTexture,
+        const sp<IGraphicBufferProducer> &bufferProducer,
         uint32_t width,
         uint32_t height,
         uint32_t flags) {
     ALOGI("onDisplayConnected width=%u, height=%u, flags = 0x%08x",
           width, height, flags);
 
-    mSurfaceTexture = surfaceTexture;
-    mDisplayBinder = mComposerClient->createDisplay(
-            String8("foo"), false /* secure */);
+    if (bufferProducer != NULL) {
+        mSurfaceTexture = bufferProducer;
+        mDisplayBinder = mComposerClient->createDisplay(
+                String8("foo"), false /* secure */);
 
-    SurfaceComposerClient::openGlobalTransaction();
-    mComposerClient->setDisplaySurface(mDisplayBinder, mSurfaceTexture);
+        SurfaceComposerClient::openGlobalTransaction();
+        mComposerClient->setDisplaySurface(mDisplayBinder, mSurfaceTexture);
 
-    Rect layerStackRect(1280, 720);  // XXX fix this.
-    Rect displayRect(1280, 720);
+        Rect layerStackRect(1280, 720);  // XXX fix this.
+        Rect displayRect(1280, 720);
 
-    mComposerClient->setDisplayProjection(
-            mDisplayBinder, 0 /* 0 degree rotation */,
-            layerStackRect,
-            displayRect);
+        mComposerClient->setDisplayProjection(
+                mDisplayBinder, 0 /* 0 degree rotation */,
+                layerStackRect,
+                displayRect);
 
-    SurfaceComposerClient::closeGlobalTransaction();
+        SurfaceComposerClient::closeGlobalTransaction();
+    }
 }
 
 void RemoteDisplayClient::onDisplayDisconnected() {
@@ -178,6 +180,26 @@ static void createSource(const AString &addr, int32_t port) {
     enableAudioSubmix(false /* enable */);
 }
 
+static void createFileSource(
+        const AString &addr, int32_t port, const char *path) {
+    sp<ANetworkSession> session = new ANetworkSession;
+    session->start();
+
+    sp<ALooper> looper = new ALooper;
+    looper->start();
+
+    sp<RemoteDisplayClient> client = new RemoteDisplayClient;
+    sp<WifiDisplaySource> source = new WifiDisplaySource(session, client, path);
+    looper->registerHandler(source);
+
+    AString iface = StringPrintf("%s:%d", addr.c_str(), port);
+    CHECK_EQ((status_t)OK, source->start(iface.c_str()));
+
+    client->waitUntilDone();
+
+    source->stop();
+}
+
 }  // namespace android
 
 int main(int argc, char **argv) {
@@ -187,41 +209,17 @@ int main(int argc, char **argv) {
 
     DataSource::RegisterDefaultSniffers();
 
-    AString connectToHost;
-    int32_t connectToPort = -1;
-    AString uri;
-
     AString listenOnAddr;
     int32_t listenOnPort = -1;
 
+    AString path;
+
     int res;
-    while ((res = getopt(argc, argv, "hc:l:u:")) >= 0) {
+    while ((res = getopt(argc, argv, "hl:f:")) >= 0) {
         switch (res) {
-            case 'c':
+            case 'f':
             {
-                const char *colonPos = strrchr(optarg, ':');
-
-                if (colonPos == NULL) {
-                    connectToHost = optarg;
-                    connectToPort = WifiDisplaySource::kWifiDisplayDefaultPort;
-                } else {
-                    connectToHost.setTo(optarg, colonPos - optarg);
-
-                    char *end;
-                    connectToPort = strtol(colonPos + 1, &end, 10);
-
-                    if (*end != '\0' || end == colonPos + 1
-                            || connectToPort < 1 || connectToPort > 65535) {
-                        fprintf(stderr, "Illegal port specified.\n");
-                        exit(1);
-                    }
-                }
-                break;
-            }
-
-            case 'u':
-            {
-                uri = optarg;
+                path = optarg;
                 break;
             }
 
@@ -255,47 +253,17 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (connectToPort >= 0 && listenOnPort >= 0) {
-        fprintf(stderr,
-                "You can connect to a source or create one, "
-                "but not both at the same time.\n");
-        exit(1);
-    }
-
     if (listenOnPort >= 0) {
-        createSource(listenOnAddr, listenOnPort);
+        if (path.empty()) {
+            createSource(listenOnAddr, listenOnPort);
+        } else {
+            createFileSource(listenOnAddr, listenOnPort, path.c_str());
+        }
+
         exit(0);
     }
 
-    if (connectToPort < 0 && uri.empty()) {
-        fprintf(stderr,
-                "You need to select either source host or uri.\n");
-
-        exit(1);
-    }
-
-    if (connectToPort >= 0 && !uri.empty()) {
-        fprintf(stderr,
-                "You need to either connect to a wfd host or an rtsp url, "
-                "not both.\n");
-        exit(1);
-    }
-
-    sp<ANetworkSession> session = new ANetworkSession;
-    session->start();
-
-    sp<ALooper> looper = new ALooper;
-
-    sp<WifiDisplaySink> sink = new WifiDisplaySink(session);
-    looper->registerHandler(sink);
-
-    if (connectToPort >= 0) {
-        sink->start(connectToHost.c_str(), connectToPort);
-    } else {
-        sink->start(uri.c_str());
-    }
-
-    looper->start(true /* runOnCallingThread */);
+    usage(argv[0]);
 
     return 0;
 }

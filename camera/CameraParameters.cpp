@@ -162,6 +162,7 @@ const char CameraParameters::KEY_VIDEO_SNAPSHOT_SUPPORTED[] = "video-snapshot-su
 const char CameraParameters::KEY_FULL_VIDEO_SNAP_SUPPORTED[] = "full-video-snap-supported";
 const char CameraParameters::KEY_VIDEO_STABILIZATION[] = "video-stabilization";
 const char CameraParameters::KEY_VIDEO_STABILIZATION_SUPPORTED[] = "video-stabilization-supported";
+const char CameraParameters::KEY_LIGHTFX[] = "light-fx";
 #ifdef QCOM_HARDWARE
 const char CameraParameters::KEY_ZSL[] = "zsl";
 const char CameraParameters::KEY_SUPPORTED_ZSL_MODES[] = "zsl-values";
@@ -204,8 +205,11 @@ const char CameraParameters::CAPTURE_MODE_ZOE[] = "zoe";
 const char CameraParameters::KEY_CONTI_BURST_STATE[] = "contiburst-state";
 const char CameraParameters::KEY_SUPPORTED_CAPTURE_MODES[] = "capture-mode-values";
 const char CameraParameters::KEY_MIN_CONTRAST[] = "contrast-min";
+const char CameraParameters::KEY_DEF_CONTRAST[] = "contrast-def";
 const char CameraParameters::KEY_MIN_SHARPNESS[] = "sharpness-min";
+const char CameraParameters::KEY_DEF_SHARPNESS[] = "sharpness-def";
 const char CameraParameters::KEY_MIN_SATURATION[] = "saturation-min";
+const char CameraParameters::KEY_DEF_SATURATION[] = "saturation-def";
 const char CameraParameters::KEY_SINGLE_ISP_OUTPUT_ENABLED[] = "single-isp-output-enabled";
 const char CameraParameters::POST_PROCESSING_ENABLE[] = "enable";
 const char CameraParameters::POST_PROCESSING_BYPASS[] = "bypass";
@@ -252,6 +256,15 @@ const char CameraParameters::EFFECT_POSTERIZE[] = "posterize";
 const char CameraParameters::EFFECT_WHITEBOARD[] = "whiteboard";
 const char CameraParameters::EFFECT_BLACKBOARD[] = "blackboard";
 const char CameraParameters::EFFECT_AQUA[] = "aqua";
+#ifdef SAMSUNG_CAMERA_HARDWARE
+const char CameraParameters::EFFECT_CARTOONIZE[] = "cartoonize";
+const char CameraParameters::EFFECT_POINT_RED_YELLOW[] = "point-red-yellow";
+const char CameraParameters::EFFECT_POINT_GREEN[] = "point-green";
+const char CameraParameters::EFFECT_POINT_BLUE[] = "point-blue";
+const char CameraParameters::EFFECT_VINTAGE_COLD[] = "vintage-cold";
+const char CameraParameters::EFFECT_VINTAGE_WARM[] = "vintage-warm";
+const char CameraParameters::EFFECT_WASHED[] = "washed";
+#endif
 #ifdef QCOM_HARDWARE
 const char CameraParameters::EFFECT_EMBOSS[] = "emboss";
 const char CameraParameters::EFFECT_SKETCH[] = "sketch";
@@ -341,9 +354,6 @@ const char CameraParameters::FOCUS_MODE_EDOF[] = "edof";
 const char CameraParameters::FOCUS_MODE_CONTINUOUS_VIDEO[] = "continuous-video";
 const char CameraParameters::FOCUS_MODE_CONTINUOUS_PICTURE[] = "continuous-picture";
 #if defined(QCOM_HARDWARE)
-#ifdef QCOM_LEGACY_CAM_PARAMS
-const char CameraParameters::FOCUS_MODE_CONTINUOUS_CAMERA[] = "continuous-camera";
-#endif
 const char CameraParameters::FOCUS_MODE_NORMAL[] = "normal";
 
 
@@ -387,26 +397,11 @@ const char CameraParameters::SKIN_TONE_ENHANCEMENT_ENABLE[] = "enable";
 const char CameraParameters::SKIN_TONE_ENHANCEMENT_DISABLE[] = "disable";
 
 const char CameraParameters::KEY_SHARPNESS[] = "sharpness";
-#ifdef QCOM_LEGACY_CAM_PARAMS
-const char CameraParameters::KEY_MAX_SHARPNESS[] = "sharpness-max";
-const char CameraParameters::KEY_MIN_SHARPNESS[] = "sharpness-min";
-#else
 const char CameraParameters::KEY_MAX_SHARPNESS[] = "max-sharpness";
-#endif
 const char CameraParameters::KEY_CONTRAST[] = "contrast";
-#ifdef QCOM_LEGACY_CAM_PARAMS
-const char CameraParameters::KEY_MAX_CONTRAST[] = "contrast-max";
-const char CameraParameters::KEY_MIN_CONTRAST[] = "contrast-min";
-#else
 const char CameraParameters::KEY_MAX_CONTRAST[] = "max-contrast";
-#endif
 const char CameraParameters::KEY_SATURATION[] = "saturation";
-#ifdef QCOM_LEGACY_CAM_PARAMS
-const char CameraParameters::KEY_MAX_SATURATION[] = "saturation-max";
-const char CameraParameters::KEY_MIN_SATURATION[] = "saturation-min";
-#else
 const char CameraParameters::KEY_MAX_SATURATION[] = "max-saturation";
-#endif
 
 //Values for DENOISE
 const char CameraParameters::DENOISE_OFF[] = "denoise-off";
@@ -492,6 +487,10 @@ void CameraParameters::setOrientation(int orientation)
 }
 #endif
 
+
+// Values for light fx settings
+const char CameraParameters::LIGHTFX_LOWLIGHT[] = "low-light";
+const char CameraParameters::LIGHTFX_HDR[] = "high-dynamic-range";
 
 CameraParameters::CameraParameters()
                 : mMap()
@@ -731,13 +730,6 @@ void CameraParameters::getSupportedPreviewSizes(Vector<Size> &sizes) const
 }
 
 #ifdef QCOM_HARDWARE
-#ifdef QCOM_LEGACY_CAM_PARAMS
-void CameraParameters::setPostviewSize(int width, int height)
-{
-    // dummy
-}
-#endif
-
 void CameraParameters::getSupportedHfrSizes(Vector<Size> &sizes) const
 {
     const char *hfrSizesStr = get(KEY_SUPPORTED_HFR_SIZES);

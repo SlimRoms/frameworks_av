@@ -28,6 +28,7 @@
 
 #include <audio_effects/effect_downmix.h>
 #include <system/audio.h>
+#include <media/nbaio/NBLog.h>
 
 namespace android {
 
@@ -41,8 +42,15 @@ public:
 
     /*virtual*/             ~AudioMixer();  // non-virtual saves a v-table, restore if sub-classed
 
+
+    // This mixer has a hard-coded upper limit of 32 active track inputs.
+    // Adding support for > 32 tracks would require more than simply changing this value.
     static const uint32_t MAX_NUM_TRACKS = 32;
     // maximum number of channels supported by the mixer
+
+    // This mixer has a hard-coded upper limit of 2 channels for output.
+    // There is support for > 2 channel tracks down-mixed to 2 channel output via a down-mix effect.
+    // Adding support for > 2 channel output would require more than simply changing this value.
     static const uint32_t MAX_NUM_CHANNELS = 2;
     // maximum number of channels supported for the content
     static const uint32_t MAX_NUM_CHANNELS_TO_DOWNMIX = 8;
@@ -139,7 +147,8 @@ private:
     struct track_t;
     class DownmixerBufferProvider;
 
-    typedef void (*hook_t)(track_t* t, int32_t* output, size_t numOutFrames, int32_t* temp, int32_t* aux);
+    typedef void (*hook_t)(track_t* t, int32_t* output, size_t numOutFrames, int32_t* temp,
+                           int32_t* aux);
     static const int BLOCKSIZE = 16; // 4 cache lines
 
     struct track_t {
@@ -188,11 +197,11 @@ private:
 
         // 16-byte boundary
 
-        uint64_t    localTimeFreq;
-
         DownmixerBufferProvider* downmixerBufferProvider; // 4 bytes
 
         int32_t     sessionId;
+
+        int32_t     padding[2];
 
         // 16-byte boundary
 
@@ -212,7 +221,8 @@ private:
         void            (*hook)(state_t* state, int64_t pts);   // one of process__*, never NULL
         int32_t         *outputTemp;
         int32_t         *resampleTemp;
-        int32_t         reserved[2];
+        NBLog::Writer*  mLog;
+        int32_t         reserved[1];
         // FIXME allocate dynamically to save some memory when maxNumTracks < MAX_NUM_TRACKS
         track_t         tracks[MAX_NUM_TRACKS]; __attribute__((aligned(32)));
     };
@@ -239,6 +249,10 @@ private:
 
     const uint32_t  mSampleRate;
 
+    NBLog::Writer   mDummyLog;
+public:
+    void            setLog(NBLog::Writer* log);
+private:
     state_t         mState __attribute__((aligned(32)));
 
     // effect descriptor for the downmixer used by the mixer
@@ -254,12 +268,17 @@ private:
     static status_t prepareTrackForDownmix(track_t* pTrack, int trackNum);
     static void unprepareTrackForDownmix(track_t* pTrack, int trackName);
 
-    static void track__genericResample(track_t* t, int32_t* out, size_t numFrames, int32_t* temp, int32_t* aux);
+    static void track__genericResample(track_t* t, int32_t* out, size_t numFrames, int32_t* temp,
+            int32_t* aux);
     static void track__nop(track_t* t, int32_t* out, size_t numFrames, int32_t* temp, int32_t* aux);
-    static void track__16BitsStereo(track_t* t, int32_t* out, size_t numFrames, int32_t* temp, int32_t* aux);
-    static void track__16BitsMono(track_t* t, int32_t* out, size_t numFrames, int32_t* temp, int32_t* aux);
-    static void volumeRampStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp, int32_t* aux);
-    static void volumeStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp, int32_t* aux);
+    static void track__16BitsStereo(track_t* t, int32_t* out, size_t numFrames, int32_t* temp,
+            int32_t* aux);
+    static void track__16BitsMono(track_t* t, int32_t* out, size_t numFrames, int32_t* temp,
+            int32_t* aux);
+    static void volumeRampStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp,
+            int32_t* aux);
+    static void volumeStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp,
+            int32_t* aux);
 
     static void process__validate(state_t* state, int64_t pts);
     static void process__nop(state_t* state, int64_t pts);
@@ -274,6 +293,10 @@ private:
 
     static int64_t calculateOutputPTS(const track_t& t, int64_t basePTS,
                                       int outputFrameIndex);
+
+    static uint64_t         sLocalTimeFreq;
+    static pthread_once_t   sOnceControl;
+    static void             sInitRoutine();
 };
 
 // ----------------------------------------------------------------------------

@@ -110,7 +110,7 @@ void SoftMP3::initPorts() {
 void SoftMP3::initDecoder() {
     mConfig->equalizerType = flat;
     mConfig->crcEnabled = false;
-    mConfig->samplingRate = mSamplingRate;
+
     uint32_t memRequirements = pvmp3_decoderMemRequirements();
     mDecoderBuf = malloc(memRequirements);
 
@@ -162,6 +162,21 @@ OMX_ERRORTYPE SoftMP3::internalSetParameter(
                         OMX_MAX_STRINGNAME_SIZE - 1)) {
                 return OMX_ErrorUndefined;
             }
+
+            return OMX_ErrorNone;
+        }
+
+        case OMX_IndexParamAudioPcm:
+        {
+            const OMX_AUDIO_PARAM_PCMMODETYPE *pcmParams =
+                (const OMX_AUDIO_PARAM_PCMMODETYPE *)params;
+
+            if (pcmParams->nPortIndex != 1) {
+                return OMX_ErrorUndefined;
+            }
+
+            mNumChannels = pcmParams->nChannels;
+            mSamplingRate = pcmParams->nSamplingRate;
 
             return OMX_ErrorNone;
         }
@@ -237,13 +252,10 @@ void SoftMP3::onQueueFilled(OMX_U32 portIndex) {
             if (decoderErr != NO_ENOUGH_MAIN_DATA_ERROR
                         && decoderErr != SIDE_INFO_ERROR) {
                 ALOGE("mp3 decoder returned error %d", decoderErr);
-                if(decoderErr == SYNCH_LOST_ERROR) {
-                    mConfig->outputFrameSize = kOutputBufferSize / sizeof(int16_t);
-                } else {
-                    notify(OMX_EventError, OMX_ErrorUndefined, decoderErr, NULL);
-                    mSignalledError = true;
-                    return;
-                }
+
+                notify(OMX_EventError, OMX_ErrorUndefined, decoderErr, NULL);
+                mSignalledError = true;
+                return;
             }
 
             if (mConfig->outputFrameSize == 0) {
@@ -344,6 +356,11 @@ void SoftMP3::onPortEnableCompleted(OMX_U32 portIndex, bool enabled) {
             break;
         }
     }
+}
+
+void SoftMP3::onReset() {
+    pvmp3_InitDecoder(mConfig, mDecoderBuf);
+    mIsFirst = true;
 }
 
 }  // namespace android

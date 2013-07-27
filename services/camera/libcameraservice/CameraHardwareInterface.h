@@ -24,9 +24,6 @@
 #include <ui/GraphicBuffer.h>
 #include <camera/Camera.h>
 #include <camera/CameraParameters.h>
-#ifdef OMAP_ENHANCEMENT_CPCAM
-#include <camera/ShotParameters.h>
-#endif
 #include <system/window.h>
 #include <hardware/camera.h>
 
@@ -50,7 +47,8 @@ typedef void (*data_callback_timestamp)(nsecs_t timestamp,
 /**
  * CameraHardwareInterface.h defines the interface to the
  * camera hardware abstraction layer, used for setting and getting
- * parameters, live previewing, and taking pictures.
+ * parameters, live previewing, and taking pictures. It is used for
+ * HAL devices with version CAMERA_DEVICE_API_VERSION_1_0 only.
  *
  * It is a referenced counted interface with RefBase as its base class.
  * CameraService calls openCameraHardware() to retrieve a strong pointer to the
@@ -59,24 +57,18 @@ typedef void (*data_callback_timestamp)(nsecs_t timestamp,
  *
  *   -# After CameraService calls openCameraHardware(), getParameters() and
  *      setParameters() are used to initialize the camera instance.
- *      CameraService calls getPreviewHeap() to establish access to the
- *      preview heap so it can be registered with SurfaceFlinger for
- *      efficient display updating while in preview mode.
- *   -# startPreview() is called.  The camera instance then periodically
- *      sends the message CAMERA_MSG_PREVIEW_FRAME (if enabled) each time
- *      a new preview frame is available.  If data callback code needs to use
- *      this memory after returning, it must copy the data.
+ *   -# startPreview() is called.
  *
- * Prior to taking a picture, CameraService calls autofocus(). When auto
+ * Prior to taking a picture, CameraService often calls autofocus(). When auto
  * focusing has completed, the camera instance sends a CAMERA_MSG_FOCUS notification,
  * which informs the application whether focusing was successful. The camera instance
  * only sends this message once and it is up  to the application to call autoFocus()
  * again if refocusing is desired.
  *
  * CameraService calls takePicture() to request the camera instance take a
- * picture. At this point, if a shutter, postview, raw, and/or compressed callback
- * is desired, the corresponding message must be enabled. As with CAMERA_MSG_PREVIEW_FRAME,
- * any memory provided in a data callback must be copied if it's needed after returning.
+ * picture. At this point, if a shutter, postview, raw, and/or compressed
+ * callback is desired, the corresponding message must be enabled. Any memory
+ * provided in a data callback must be copied if it's needed after returning.
  */
 
 class CameraHardwareInterface : public virtual RefBase {
@@ -371,18 +363,6 @@ public:
         return INVALID_OPERATION;
     }
 
-#ifdef OMAP_ENHANCEMENT_CPCAM
-    status_t takePictureWithParameters(const ShotParameters &params)
-    {
-        ALOGV("%s(%s)", __FUNCTION__, mName.string());
-        if (mDeviceExtendedOps.take_picture_with_parameters) {
-            return mDeviceExtendedOps.take_picture_with_parameters(mDevice,
-                    params.flatten().string());
-        }
-        return INVALID_OPERATION;
-    }
-#endif
-
     /**
      * Cancel a picture that was started with takePicture.  Calling this
      * method when no picture is being taken is a no-op.
@@ -448,7 +428,7 @@ public:
     /**
      * Dump state of the camera hardware
      */
-    status_t dump(int fd, const Vector<String16>& args) const
+    status_t dump(int fd, const Vector<String16>& /*args*/) const
     {
         ALOGV("%s(%s)", __FUNCTION__, mName.string());
         if (mDevice->ops->dump)
@@ -609,9 +589,10 @@ private:
 #endif
 
     static int __lock_buffer(struct preview_stream_ops* w,
-                      buffer_handle_t* buffer)
+                      buffer_handle_t* /*buffer*/)
     {
         ANativeWindow *a = anw(w);
+        (void)a;
         return 0;
     }
 

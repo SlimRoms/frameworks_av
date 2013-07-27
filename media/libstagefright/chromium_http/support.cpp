@@ -36,15 +36,15 @@
 #include "include/ChromiumHTTPDataSource.h"
 
 #include <cutils/log.h>
-#include <cutils/properties.h>
 #include <media/stagefright/MediaErrors.h>
+#include <media/stagefright/Utils.h>
 #include <string>
 
 namespace android {
 
 static Mutex gNetworkThreadLock;
 static base::Thread *gNetworkThread = NULL;
-static scoped_refptr<net::URLRequestContext> gReqContext;
+static scoped_refptr<SfRequestContext> gReqContext;
 static scoped_ptr<net::NetworkChangeNotifier> gNetworkChangeNotifier;
 
 bool logMessageHandler(
@@ -156,19 +156,7 @@ net::NetLog::LogLevel SfNetLog::GetLogLevel() const {
 ////////////////////////////////////////////////////////////////////////////////
 
 SfRequestContext::SfRequestContext() {
-    AString ua;
-    ua.append("stagefright/1.2 (Linux;Android ");
-
-#if (PROPERTY_VALUE_MAX < 8)
-#error "PROPERTY_VALUE_MAX must be at least 8"
-#endif
-
-    char value[PROPERTY_VALUE_MAX];
-    property_get("ro.build.version.release", value, "Unknown");
-    ua.append(value);
-    ua.append(")");
-
-    mUserAgent = ua.c_str();
+    mUserAgent = MakeUserAgent().c_str();
 
     set_net_log(new SfNetLog());
 
@@ -181,8 +169,10 @@ SfRequestContext::SfRequestContext() {
     set_ssl_config_service(
         net::SSLConfigService::CreateSystemSSLConfigService());
 
+    mProxyConfigService = new net::ProxyConfigServiceAndroid;
+
     set_proxy_service(net::ProxyService::CreateWithoutProxyResolver(
-        new net::ProxyConfigServiceAndroid, net_log()));
+        mProxyConfigService, net_log()));
 
     set_http_transaction_factory(new net::HttpCache(
             host_resolver(),
@@ -201,6 +191,31 @@ SfRequestContext::SfRequestContext() {
 
 const std::string &SfRequestContext::GetUserAgent(const GURL &url) const {
     return mUserAgent;
+}
+
+status_t SfRequestContext::updateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    Mutex::Autolock autoLock(mProxyConfigLock);
+
+    if (host == NULL || *host == '\0') {
+        MY_LOGV("updateProxyConfig NULL");
+
+        std::string proxy;
+        std::string exList;
+        mProxyConfigService->UpdateProxySettings(proxy, exList);
+    } else {
+#if !defined(LOG_NDEBUG) || LOG_NDEBUG == 0
+        LOG_PRI(ANDROID_LOG_VERBOSE, LOG_TAG,
+                "updateProxyConfig %s:%d, exclude '%s'",
+                host, port, exclusionList);
+#endif
+
+        std::string proxy = StringPrintf("%s:%d", host, port).c_str();
+        std::string exList = exclusionList;
+        mProxyConfigService->UpdateProxySettings(proxy, exList);
+    }
+
+    return OK;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -229,6 +244,14 @@ SfDelegate::SfDelegate()
 
 SfDelegate::~SfDelegate() {
     CHECK(mURLRequest == NULL);
+}
+
+// static
+status_t SfDelegate::UpdateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    InitializeNetworkThreadIfNecessary();
+
+    return gReqContext->updateProxyConfig(host, port, exclusionList);
 }
 
 void SfDelegate::setOwner(ChromiumHTTPDataSource *owner) {

@@ -263,8 +263,8 @@ void BlockIterator::advance_l() {
                     mCluster, nextCluster, pos, len);
             ALOGV("ParseNext returned %ld", res);
 
-            if (res > 0) {
-                // EOF
+            if (res != 0) {
+                // EOF or error
 
                 mCluster = NULL;
                 break;
@@ -464,12 +464,7 @@ status_t MatroskaSource::readBlock() {
 
     int64_t timeUs = mBlockIter.blockTimeUs();
 
-#ifdef OMAP_ENHANCEMENT
-    int frameCount = block->GetFrameCount();
-    for (int i = 0; i < frameCount ; ++i) {
-#else
     for (int i = 0; i < block->GetFrameCount(); ++i) {
-#endif
         const mkvparser::Block::Frame &frame = block->GetFrame(i);
 
         MediaBuffer *mbuf = new MediaBuffer(frame.len);
@@ -489,28 +484,6 @@ status_t MatroskaSource::readBlock() {
 
     mBlockIter.advance();
 
-#ifdef OMAP_ENHANCEMENT
-    if (!mBlockIter.eos() && frameCount > 1) {
-        // For files with lacing enabled, we need to amend they kKeyTime of
-        // each frame so that their kKeyTime are advanced accordingly (instead
-        // of being set to the same value). To do this, we need to find out
-        // the duration of the block using the start time of the next block.
-        int64_t duration = mBlockIter.blockTimeUs() - timeUs;
-        int64_t durationPerFrame = duration / frameCount;
-        int64_t durationRemainder = duration % frameCount;
-
-        // We split duration to each of the frame, distributing the remainder (if any)
-        // to the later frames. The later frames are processed first due to the
-        // use of the iterator for the doubly linked list
-        List<MediaBuffer *>::iterator it = mPendingFrames.end();
-        for (int i = frameCount - 1; i >= 0; --i) {
-            --it;
-            int64_t frameRemainder = durationRemainder >= frameCount - i ? 1 : 0;
-            int64_t frameTimeUs = timeUs + durationPerFrame * i + frameRemainder;
-            (*it)->meta_data()->setInt64(kKeyTime, frameTimeUs);
-        }
-    }
-#endif
     return OK;
 }
 
@@ -785,31 +758,69 @@ static void addESDSFromCodecPrivate(
     esds = NULL;
 }
 
-void addVorbisCodecInfo(
+status_t addVorbisCodecInfo(
         const sp<MetaData> &meta,
         const void *_codecPrivate, size_t codecPrivateSize) {
-    // printf("vorbis private data follows:\n");
     // hexdump(_codecPrivate, codecPrivateSize);
 
-    CHECK(codecPrivateSize >= 3);
+    if (codecPrivateSize < 1) {
+        return ERROR_MALFORMED;
+    }
 
     const uint8_t *codecPrivate = (const uint8_t *)_codecPrivate;
-    CHECK(codecPrivate[0] == 0x02);
 
-    size_t len1 = codecPrivate[1];
-    size_t len2 = codecPrivate[2];
+    if (codecPrivate[0] != 0x02) {
+        return ERROR_MALFORMED;
+    }
 
-    CHECK(codecPrivateSize > 3 + len1 + len2);
+    // codecInfo starts with two lengths, len1 and len2, that are
+    // "Xiph-style-lacing encoded"...
 
-    CHECK(codecPrivate[3] == 0x01);
-    meta->setData(kKeyVorbisInfo, 0, &codecPrivate[3], len1);
+    size_t offset = 1;
+    size_t len1 = 0;
+    while (offset < codecPrivateSize && codecPrivate[offset] == 0xff) {
+        len1 += 0xff;
+        ++offset;
+    }
+    if (offset >= codecPrivateSize) {
+        return ERROR_MALFORMED;
+    }
+    len1 += codecPrivate[offset++];
 
-    CHECK(codecPrivate[len1 + 3] == 0x03);
+    size_t len2 = 0;
+    while (offset < codecPrivateSize && codecPrivate[offset] == 0xff) {
+        len2 += 0xff;
+        ++offset;
+    }
+    if (offset >= codecPrivateSize) {
+        return ERROR_MALFORMED;
+    }
+    len2 += codecPrivate[offset++];
 
-    CHECK(codecPrivate[len1 + len2 + 3] == 0x05);
+    if (codecPrivateSize < offset + len1 + len2) {
+        return ERROR_MALFORMED;
+    }
+
+    if (codecPrivate[offset] != 0x01) {
+        return ERROR_MALFORMED;
+    }
+    meta->setData(kKeyVorbisInfo, 0, &codecPrivate[offset], len1);
+
+    offset += len1;
+    if (codecPrivate[offset] != 0x03) {
+        return ERROR_MALFORMED;
+    }
+
+    offset += len2;
+    if (codecPrivate[offset] != 0x05) {
+        return ERROR_MALFORMED;
+    }
+
     meta->setData(
-            kKeyVorbisBooks, 0, &codecPrivate[len1 + len2 + 3],
-            codecPrivateSize - len1 - len2 - 3);
+            kKeyVorbisBooks, 0, &codecPrivate[offset],
+            codecPrivateSize - offset);
+
+    return OK;
 }
 
 void MatroskaExtractor::addTracks() {
@@ -835,6 +846,8 @@ void MatroskaExtractor::addTracks() {
         enum { VIDEO_TRACK = 1, AUDIO_TRACK = 2 };
 
         sp<MetaData> meta = new MetaData;
+
+        status_t err = OK;
 
         switch (track->GetType()) {
             case VIDEO_TRACK:
@@ -882,7 +895,8 @@ void MatroskaExtractor::addTracks() {
                 } else if (!strcmp("A_VORBIS", codecID)) {
                     meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_VORBIS);
 
-                    addVorbisCodecInfo(meta, codecPrivate, codecPrivateSize);
+                    err = addVorbisCodecInfo(
+                            meta, codecPrivate, codecPrivateSize);
                 } else if (!strcmp("A_MPEG/L3", codecID)) {
                     meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
                 } else {
@@ -897,6 +911,11 @@ void MatroskaExtractor::addTracks() {
 
             default:
                 continue;
+        }
+
+        if (err != OK) {
+            ALOGE("skipping track, codec specific data was malformed.");
+            continue;
         }
 
         long long durationNs = mSegment->GetDuration();

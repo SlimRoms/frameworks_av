@@ -1,9 +1,5 @@
 /*
 **
-** Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
-** Not a Contribution, Apache license notifications and license are retained
-** for attribution purposes only.
-**
 ** Copyright 2008, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +38,7 @@
 #include <binder/IServiceManager.h>
 #include <binder/MemoryHeapBase.h>
 #include <binder/MemoryBase.h>
-#include <gui/SurfaceTextureClient.h>
+#include <gui/Surface.h>
 #include <utils/Errors.h>  // for status_t
 #include <utils/String8.h>
 #include <utils/SystemClock.h>
@@ -76,9 +72,10 @@
 #include <OMX.h>
 
 #include "Crypto.h"
+#include "Drm.h"
 #include "HDCP.h"
+#include "HTTPBase.h"
 #include "RemoteDisplay.h"
-#define DEFAULT_SAMPLE_RATE 44100
 
 namespace {
 using android::media::Metadata;
@@ -229,8 +226,9 @@ MediaPlayerService::~MediaPlayerService()
     ALOGV("MediaPlayerService destroyed");
 }
 
-sp<IMediaRecorder> MediaPlayerService::createMediaRecorder(pid_t pid)
+sp<IMediaRecorder> MediaPlayerService::createMediaRecorder()
 {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     sp<MediaRecorderClient> recorder = new MediaRecorderClient(this, pid);
     wp<MediaRecorderClient> w = recorder;
     Mutex::Autolock lock(mLock);
@@ -246,16 +244,18 @@ void MediaPlayerService::removeMediaRecorderClient(wp<MediaRecorderClient> clien
     ALOGV("Delete media recorder client");
 }
 
-sp<IMediaMetadataRetriever> MediaPlayerService::createMetadataRetriever(pid_t pid)
+sp<IMediaMetadataRetriever> MediaPlayerService::createMetadataRetriever()
 {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     sp<MetadataRetrieverClient> retriever = new MetadataRetrieverClient(pid);
     ALOGV("Create new media retriever from pid %d", pid);
     return retriever;
 }
 
-sp<IMediaPlayer> MediaPlayerService::create(pid_t pid, const sp<IMediaPlayerClient>& client,
+sp<IMediaPlayer> MediaPlayerService::create(const sp<IMediaPlayerClient>& client,
         int audioSessionId)
 {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     int32_t connId = android_atomic_inc(&mNextConnId);
 
     sp<Client> c = new Client(
@@ -287,8 +287,12 @@ sp<ICrypto> MediaPlayerService::makeCrypto() {
     return new Crypto;
 }
 
-sp<IHDCP> MediaPlayerService::makeHDCP() {
-    return new HDCP;
+sp<IDrm> MediaPlayerService::makeDrm() {
+    return new Drm;
+}
+
+sp<IHDCP> MediaPlayerService::makeHDCP(bool createEncryptionModule) {
+    return new HDCP(createEncryptionModule);
 }
 
 sp<IRemoteDisplay> MediaPlayerService::listenForRemoteDisplay(
@@ -298,6 +302,11 @@ sp<IRemoteDisplay> MediaPlayerService::listenForRemoteDisplay(
     }
 
     return new RemoteDisplay(client, iface.string());
+}
+
+status_t MediaPlayerService::updateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    return HTTPBase::UpdateProxyConfig(host, port, exclusionList);
 }
 
 status_t MediaPlayerService::AudioCache::dump(int fd, const Vector<String16>& args) const
@@ -312,7 +321,7 @@ status_t MediaPlayerService::AudioCache::dump(int fd, const Vector<String16>& ar
                 mHeap->getBase(), mHeap->getSize(), mHeap->getFlags(), mHeap->getDevice());
         result.append(buffer);
     }
-    snprintf(buffer, 255, "  msec per frame(%f), channel count(%d), format(%d), frame count(%zd)\n",
+    snprintf(buffer, 255, "  msec per frame(%f), channel count(%d), format(%d), frame count(%ld)\n",
             mMsecsPerFrame, mChannelCount, mFormat, mFrameCount);
     result.append(buffer);
     snprintf(buffer, 255, "  sample rate(%d), size(%d), error(%d), command complete(%s)\n",
@@ -526,8 +535,8 @@ void MediaPlayerService::Client::disconnect()
     {
         Mutex::Autolock l(mLock);
         p = mPlayer;
-        mClient.clear();
     }
+    mClient.clear();
 
     mPlayer.clear();
 
@@ -719,21 +728,21 @@ void MediaPlayerService::Client::disconnectNativeWindow() {
 }
 
 status_t MediaPlayerService::Client::setVideoSurfaceTexture(
-        const sp<ISurfaceTexture>& surfaceTexture)
+        const sp<IGraphicBufferProducer>& bufferProducer)
 {
-    ALOGV("[%d] setVideoSurfaceTexture(%p)", mConnId, surfaceTexture.get());
+    ALOGV("[%d] setVideoSurfaceTexture(%p)", mConnId, bufferProducer.get());
     sp<MediaPlayerBase> p = getPlayer();
     if (p == 0) return UNKNOWN_ERROR;
 
-    sp<IBinder> binder(surfaceTexture == NULL ? NULL :
-            surfaceTexture->asBinder());
+    sp<IBinder> binder(bufferProducer == NULL ? NULL :
+            bufferProducer->asBinder());
     if (mConnectedWindowBinder == binder) {
         return OK;
     }
 
     sp<ANativeWindow> anw;
-    if (surfaceTexture != NULL) {
-        anw = new SurfaceTextureClient(surfaceTexture);
+    if (bufferProducer != NULL) {
+        anw = new Surface(bufferProducer);
         status_t err = native_window_api_connect(anw.get(),
                 NATIVE_WINDOW_API_MEDIA);
 
@@ -750,10 +759,10 @@ status_t MediaPlayerService::Client::setVideoSurfaceTexture(
         }
     }
 
-    // Note that we must set the player's new SurfaceTexture before
+    // Note that we must set the player's new GraphicBufferProducer before
     // disconnecting the old one.  Otherwise queue/dequeue calls could be made
     // on the disconnected ANW, which may result in errors.
-    status_t err = p->setVideoSurfaceTexture(surfaceTexture);
+    status_t err = p->setVideoSurfaceTexture(bufferProducer);
 
     disconnectNativeWindow();
 
@@ -1357,13 +1366,6 @@ uint32_t MediaPlayerService::AudioOutput::latency () const
     return mTrack->latency();
 }
 
-#ifdef QCOM_HARDWARE
-audio_stream_type_t MediaPlayerService::AudioOutput::streamType () const
-{
-    return mStreamType;
-}
-#endif
-
 float MediaPlayerService::AudioOutput::msecsPerFrame() const
 {
     return mMsecsPerFrame;
@@ -1374,22 +1376,6 @@ status_t MediaPlayerService::AudioOutput::getPosition(uint32_t *position) const
     if (mTrack == 0) return NO_INIT;
     return mTrack->getPosition(position);
 }
-
-#ifdef QCOM_HARDWARE
-ssize_t MediaPlayerService::AudioOutput::sampleRate() const
-{
-    if (mTrack == 0) return NO_INIT;
-    return DEFAULT_SAMPLE_RATE;
-}
-
-status_t MediaPlayerService::AudioOutput::getTimeStamp(uint64_t *tstamp)
-{
-    if (tstamp == 0) return BAD_VALUE;
-    if (mTrack == 0) return NO_INIT;
-    mTrack->getTimeStamp(tstamp);
-    return NO_ERROR;
-}
-#endif
 
 status_t MediaPlayerService::AudioOutput::getFramesWritten(uint32_t *frameswritten) const
 {
@@ -1407,65 +1393,6 @@ status_t MediaPlayerService::AudioOutput::open(
     mCallback = cb;
     mCallbackCookie = cookie;
 
-#ifdef QCOM_HARDWARE
-    if (flags & AUDIO_OUTPUT_FLAG_LPA || flags & AUDIO_OUTPUT_FLAG_TUNNEL) {
-        ALOGV("AudioOutput open: with flags %x",flags);
-        channelMask = audio_channel_out_mask_from_count(channelCount);
-        if (0 == channelMask) {
-            ALOGE("open() error, can't derive mask for %d audio channels", channelCount);
-            return NO_INIT;
-        }
-        AudioTrack *audioTrack = NULL;
-        CallbackData *newcbd = NULL;
-        if (mCallback != NULL) {
-            newcbd = new CallbackData(this);
-            audioTrack = new AudioTrack(
-                             mStreamType,
-                             sampleRate,
-                             format,
-                             channelMask,
-                             0,
-                             flags,
-                             CallbackWrapper,
-                             newcbd,
-                             0,
-                             mSessionId);
-            if ((audioTrack == 0) || (audioTrack->initCheck() != NO_ERROR)) {
-                ALOGE("Unable to create audio track");
-                delete audioTrack;
-                delete newcbd;
-                return NO_INIT;
-            }
-        } else {
-            ALOGE("no callback supplied");
-            return NO_INIT;
-        }
-
-        if (mRecycledTrack) {
-            //usleep(500000);
-            // if we're not going to reuse the track, unblock and flush it
-            if (mCallbackData != NULL) {
-                mCallbackData->setOutput(NULL);
-                mCallbackData->endTrackSwitch();
-            }
-            mRecycledTrack->flush();
-            delete mRecycledTrack;
-            mRecycledTrack = NULL;
-            delete mCallbackData;
-            mCallbackData = NULL;
-            close();
-        }
-
-        ALOGV("setVolume");
-        mCallbackData = newcbd;
-        audioTrack->setVolume(mLeftVolume, mRightVolume);
-        mSampleRateHz = sampleRate;
-        mFlags = flags;
-        mTrack = audioTrack;
-        return NO_ERROR;
-    }
-#endif
-
     // Check argument "bufferCount" against the mininum buffer count
     if (bufferCount < mMinBufferCount) {
         ALOGD("bufferCount (%d) is too small and increased to %d", bufferCount, mMinBufferCount);
@@ -1474,8 +1401,8 @@ status_t MediaPlayerService::AudioOutput::open(
     }
     ALOGV("open(%u, %d, 0x%x, %d, %d, %d)", sampleRate, channelCount, channelMask,
             format, bufferCount, mSessionId);
-    int afSampleRate;
-    int afFrameCount;
+    uint32_t afSampleRate;
+    size_t afFrameCount;
     uint32_t frameCount;
 
     if (AudioSystem::getOutputFrameCount(&afFrameCount, mStreamType) != NO_ERROR) {
@@ -1638,7 +1565,7 @@ void MediaPlayerService::AudioOutput::switchToNextOutput() {
 
 ssize_t MediaPlayerService::AudioOutput::write(const void* buffer, size_t size)
 {
-    //LOG_FATAL_IF(mCallback != NULL, "Don't call write if supplying a callback.");
+    LOG_FATAL_IF(mCallback != NULL, "Don't call write if supplying a callback.");
 
     //ALOGV("write(%p, %u)", buffer, size);
     if (mTrack) {
@@ -1724,77 +1651,35 @@ status_t MediaPlayerService::AudioOutput::attachAuxEffect(int effectId)
 void MediaPlayerService::AudioOutput::CallbackWrapper(
         int event, void *cookie, void *info) {
     //ALOGV("callbackwrapper");
-#ifdef QCOM_HARDWARE
-    if (event == AudioTrack::EVENT_UNDERRUN) {
-        ALOGW("Event underrun");
-        CallbackData *data = (CallbackData*)cookie;
-        data->lock();
-        AudioOutput *me = data->getOutput();
-        if (me == NULL) {
-            // no output set, likely because the track was scheduled to be reused
-            // by another player, but the format turned out to be incompatible.
-            data->unlock();
-            return;
-        }
-        ALOGD("Callback!!!");
-        (*me->mCallback)(
-            me, NULL, (size_t)AudioTrack::EVENT_UNDERRUN, me->mCallbackCookie);
-        data->unlock();
+    if (event != AudioTrack::EVENT_MORE_DATA) {
         return;
     }
-    if (event == AudioTrack::EVENT_HW_FAIL) {
-        ALOGW("Event hardware failure");
-        CallbackData *data = (CallbackData*)cookie;
-        if (data != NULL) {
-            data->lock();
-            AudioOutput *me = data->getOutput();
-            if (me == NULL) {
-                // no output set, likely because the track was
-                // scheduled to be reused
-                // by another player, but the format turned out
-                // to be incompatible.
-                data->unlock();
-                return;
-            }
-            ALOGV("Callback!!!");
-            (*me->mCallback)(me, NULL, (size_t)AudioTrack::EVENT_HW_FAIL,
-                             me->mCallbackCookie);
-            data->unlock();
-        }
+
+    CallbackData *data = (CallbackData*)cookie;
+    data->lock();
+    AudioOutput *me = data->getOutput();
+    AudioTrack::Buffer *buffer = (AudioTrack::Buffer *)info;
+    if (me == NULL) {
+        // no output set, likely because the track was scheduled to be reused
+        // by another player, but the format turned out to be incompatible.
+        data->unlock();
+        buffer->size = 0;
         return;
     }
-#endif
-    if (event == AudioTrack::EVENT_MORE_DATA) {
-        CallbackData *data = (CallbackData*)cookie;
-        data->lock();
-        AudioOutput *me = data->getOutput();
-        AudioTrack::Buffer *buffer = (AudioTrack::Buffer *)info;
-        if (me == NULL) {
-            // no output set, likely because the track was scheduled to be reused
-            // by another player, but the format turned out to be incompatible.
-            data->unlock();
-            buffer->size = 0;
-            return;
-        }
 
-        size_t actualSize = (*me->mCallback)(
-                me, buffer->raw, buffer->size, me->mCallbackCookie);
+    size_t actualSize = (*me->mCallback)(
+            me, buffer->raw, buffer->size, me->mCallbackCookie);
 
-        if (actualSize == 0 && buffer->size > 0 && me->mNextOutput == NULL) {
-            // We've reached EOS but the audio track is not stopped yet,
-            // keep playing silence.
+    if (actualSize == 0 && buffer->size > 0 && me->mNextOutput == NULL) {
+        // We've reached EOS but the audio track is not stopped yet,
+        // keep playing silence.
 
-            memset(buffer->raw, 0, buffer->size);
-            actualSize = buffer->size;
-        }
-
-        buffer->size = actualSize;
-        data->unlock();
+        memset(buffer->raw, 0, buffer->size);
+        actualSize = buffer->size;
     }
 
-    return;
-
-
+    buffer->size = actualSize;
+    data->unlock();
 }
 
 int MediaPlayerService::AudioOutput::getSessionId() const
@@ -1828,13 +1713,6 @@ status_t MediaPlayerService::AudioCache::getPosition(uint32_t *position) const
     *position = mSize;
     return NO_ERROR;
 }
-
-#ifdef QCOM_HARDWARE
-ssize_t MediaPlayerService::AudioCache::sampleRate() const
-{
-    return mSampleRate;
-}
-#endif
 
 status_t MediaPlayerService::AudioCache::getFramesWritten(uint32_t *written) const
 {

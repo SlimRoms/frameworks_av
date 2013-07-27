@@ -21,12 +21,15 @@ LOCAL_C_INCLUDES += $(call include-path-for, speex)
 LOCAL_SHARED_LIBRARIES := \
     libwebrtc_audio_preprocessing \
     libspeexresampler \
-    libutils
+    libutils \
+    liblog
 
 ifeq ($(TARGET_SIMULATOR),true)
 LOCAL_LDLIBS += -ldl
 else
 LOCAL_SHARED_LIBRARIES += libdl
 endif
+
+LOCAL_CFLAGS += -fvisibility=hidden
 
 include $(BUILD_SHARED_LIBRARY)

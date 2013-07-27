@@ -104,8 +104,10 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(StreamSource);
 };
 
-MP4Source::MP4Source(const sp<IStreamSource> &source)
-    : mSource(source),
+MP4Source::MP4Source(
+        const sp<AMessage> &notify, const sp<IStreamSource> &source)
+    : Source(notify),
+      mSource(source),
       mLooper(new ALooper),
       mParser(new FragmentedMP4Parser),
       mEOS(false) {
@@ -113,6 +115,12 @@ MP4Source::MP4Source(const sp<IStreamSource> &source)
 }
 
 MP4Source::~MP4Source() {
+}
+
+void MP4Source::prepareAsync() {
+    notifyVideoSizeChanged(0, 0);
+    notifyFlagsChanged(0);
+    notifyPrepared();
 }
 
 void MP4Source::start() {
@@ -131,10 +139,6 @@ sp<AMessage> MP4Source::getFormat(bool audio) {
 status_t MP4Source::dequeueAccessUnit(
         bool audio, sp<ABuffer> *accessUnit) {
     return mParser->dequeueAccessUnit(audio, accessUnit);
-}
-
-uint32_t MP4Source::flags() const {
-    return 0;
 }
 
 }  // namespace android

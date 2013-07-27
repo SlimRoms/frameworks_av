@@ -24,6 +24,11 @@ namespace android {
 class MemoryHeapBase;
 class CameraHardwareInterface;
 
+/**
+ * Interface between android.hardware.Camera API and Camera HAL device for version
+ * CAMERA_DEVICE_API_VERSION_1_0.
+ */
+
 class CameraClient : public CameraService::Client
 {
 public:
@@ -33,7 +38,7 @@ public:
     virtual status_t        lock();
     virtual status_t        unlock();
     virtual status_t        setPreviewDisplay(const sp<Surface>& surface);
-    virtual status_t        setPreviewTexture(const sp<ISurfaceTexture>& surfaceTexture);
+    virtual status_t        setPreviewTexture(const sp<IGraphicBufferProducer>& bufferProducer);
     virtual void            setPreviewCallbackFlag(int flag);
     virtual status_t        startPreview();
     virtual void            stopPreview();
@@ -45,11 +50,7 @@ public:
     virtual void            releaseRecordingFrame(const sp<IMemory>& mem);
     virtual status_t        autoFocus();
     virtual status_t        cancelAutoFocus();
-#ifdef OMAP_ENHANCEMENT_CPCAM
-    virtual status_t        takePicture(int msgType, const String8& params);
-#else
     virtual status_t        takePicture(int msgType);
-#endif
     virtual status_t        setParameters(const String8& params);
     virtual String8         getParameters() const;
     virtual status_t        sendCommand(int32_t cmd, int32_t arg1, int32_t arg2);
@@ -57,9 +58,11 @@ public:
     // Interface used by CameraService
     CameraClient(const sp<CameraService>& cameraService,
             const sp<ICameraClient>& cameraClient,
+            const String16& clientPackageName,
             int cameraId,
             int cameraFacing,
             int clientPid,
+            int clientUid,
             int servicePid);
     ~CameraClient();
 
@@ -131,7 +134,7 @@ private:
 
     // Ensures atomicity among the public methods
     mutable Mutex                   mLock;
-    // This is a binder of Surface or SurfaceTexture.
+    // This is a binder of Surface or Surface.
     sp<IBinder>                     mSurface;
     sp<ANativeWindow>               mPreviewWindow;
 

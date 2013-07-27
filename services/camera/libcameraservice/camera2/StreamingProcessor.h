@@ -22,11 +22,12 @@
 #include <gui/BufferItemConsumer.h>
 
 #include "Parameters.h"
-#include "CameraMetadata.h"
+#include "camera/CameraMetadata.h"
 
 namespace android {
 
 class Camera2Client;
+class CameraDeviceBase;
 class IMemory;
 
 namespace camera2 {
@@ -36,9 +37,10 @@ class Camera2Heap;
 /**
  * Management and processing for preview and recording streams
  */
-class StreamingProcessor: public BufferItemConsumer::FrameAvailableListener {
+class StreamingProcessor:
+            public Thread, public BufferItemConsumer::FrameAvailableListener {
   public:
-    StreamingProcessor(wp<Camera2Client> client);
+    StreamingProcessor(sp<Camera2Client> client);
     ~StreamingProcessor();
 
     status_t setPreviewWindow(sp<ANativeWindow> window);
@@ -64,6 +66,9 @@ class StreamingProcessor: public BufferItemConsumer::FrameAvailableListener {
     status_t startStream(StreamType type,
             const Vector<uint8_t> &outputStreams);
 
+    // Toggle between paused and unpaused. Stream must be started first.
+    status_t togglePauseStream(bool pause);
+
     status_t stopStream();
 
     // Returns the request ID for the currently streaming request
@@ -86,8 +91,13 @@ class StreamingProcessor: public BufferItemConsumer::FrameAvailableListener {
     };
 
     wp<Camera2Client> mClient;
+    wp<CameraDeviceBase> mDevice;
+    int mId;
 
     StreamType mActiveRequest;
+    bool mPaused;
+
+    Vector<uint8_t> mActiveStreamIds;
 
     // Preview-related members
     int32_t mPreviewRequestId;
@@ -96,6 +106,8 @@ class StreamingProcessor: public BufferItemConsumer::FrameAvailableListener {
     sp<ANativeWindow> mPreviewWindow;
 
     // Recording-related members
+    static const nsecs_t kWaitDuration = 50000000; // 50 ms
+
     int32_t mRecordingRequestId;
     int mRecordingStreamId;
     int mRecordingFrameCount;
@@ -104,11 +116,24 @@ class StreamingProcessor: public BufferItemConsumer::FrameAvailableListener {
     CameraMetadata mRecordingRequest;
     sp<camera2::Camera2Heap> mRecordingHeap;
 
+    bool mRecordingFrameAvailable;
+    Condition mRecordingFrameAvailableSignal;
+
     static const size_t kDefaultRecordingHeapCount = 8;
     size_t mRecordingHeapCount;
     Vector<BufferItemConsumer::BufferItem> mRecordingBuffers;
     size_t mRecordingHeapHead, mRecordingHeapFree;
 
+    virtual bool threadLoop();
+
+    status_t processRecordingFrame();
+
+    // Unilaterally free any buffers still outstanding to stagefright
+    void releaseAllRecordingFramesLocked();
+
+    // Determine if the specified stream is currently in use
+    static bool isStreamActive(const Vector<uint8_t> &streams,
+            uint8_t recordingStreamId);
 };
 
 

@@ -82,7 +82,7 @@ const effect_descriptor_t gBassBoostDescriptor = {
         {0x0634f220, 0xddd4, 0x11db, 0xa0fc, { 0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1b }},
         {0x8631f300, 0x72e2, 0x11df, 0xb57e, {0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1b}}, // uuid
         EFFECT_CONTROL_API_VERSION,
-        (EFFECT_FLAG_TYPE_INSERT | EFFECT_FLAG_INSERT_LAST | EFFECT_FLAG_DEVICE_IND
+        (EFFECT_FLAG_TYPE_INSERT | EFFECT_FLAG_INSERT_FIRST | EFFECT_FLAG_DEVICE_IND
         | EFFECT_FLAG_VOLUME_CTRL),
         BASS_BOOST_CUP_LOAD_ARM9E,
         BUNDLE_MEM_USAGE,
@@ -108,7 +108,7 @@ const effect_descriptor_t gEqualizerDescriptor = {
         {0x0bed4300, 0xddd6, 0x11db, 0x8f34, {0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1b}}, // type
         {0xce772f20, 0x847d, 0x11df, 0xbb17, {0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1b}}, // uuid Eq NXP
         EFFECT_CONTROL_API_VERSION,
-        (EFFECT_FLAG_TYPE_INSERT | EFFECT_FLAG_INSERT_LAST | EFFECT_FLAG_VOLUME_CTRL),
+        (EFFECT_FLAG_TYPE_INSERT | EFFECT_FLAG_INSERT_FIRST | EFFECT_FLAG_VOLUME_CTRL),
         EQUALIZER_CUP_LOAD_ARM9E,
         BUNDLE_MEM_USAGE,
         "Equalizer",
@@ -158,42 +158,6 @@ int  Volume_getParameter       (EffectContext *pContext,
 int Effect_setEnabled(EffectContext *pContext, bool enabled);
 
 /* Effect Library Interface Implementation */
-extern "C" int EffectQueryNumberEffects(uint32_t *pNumEffects){
-    ALOGV("\n\tEffectQueryNumberEffects start");
-    *pNumEffects = 4;
-    ALOGV("\tEffectQueryNumberEffects creating %d effects", *pNumEffects);
-    ALOGV("\tEffectQueryNumberEffects end\n");
-    return 0;
-}     /* end EffectQueryNumberEffects */
-
-extern "C" int EffectQueryEffect(uint32_t index, effect_descriptor_t *pDescriptor){
-    ALOGV("\n\tEffectQueryEffect start");
-    ALOGV("\tEffectQueryEffect processing index %d", index);
-
-    if (pDescriptor == NULL){
-        ALOGV("\tLVM_ERROR : EffectQueryEffect was passed NULL pointer");
-        return -EINVAL;
-    }
-    if (index > 3){
-        ALOGV("\tLVM_ERROR : EffectQueryEffect index out of range %d", index);
-        return -ENOENT;
-    }
-    if(index == LVM_BASS_BOOST){
-        ALOGV("\tEffectQueryEffect processing LVM_BASS_BOOST");
-        *pDescriptor = gBassBoostDescriptor;
-    }else if(index == LVM_VIRTUALIZER){
-        ALOGV("\tEffectQueryEffect processing LVM_VIRTUALIZER");
-        *pDescriptor = gVirtualizerDescriptor;
-    } else if(index == LVM_EQUALIZER){
-        ALOGV("\tEffectQueryEffect processing LVM_EQUALIZER");
-        *pDescriptor = gEqualizerDescriptor;
-    } else if(index == LVM_VOLUME){
-        ALOGV("\tEffectQueryEffect processing LVM_VOLUME");
-        *pDescriptor = gVolumeDescriptor;
-    }
-    ALOGV("\tEffectQueryEffect end\n");
-    return 0;
-}     /* end EffectQueryEffect */
 
 extern "C" int EffectCreate(const effect_uuid_t *uuid,
                             int32_t             sessionId,
@@ -260,6 +224,7 @@ extern "C" int EffectCreate(const effect_uuid_t *uuid,
         pContext->pBundledContext->NumberEffectsEnabled     = 0;
         pContext->pBundledContext->NumberEffectsCalled      = 0;
         pContext->pBundledContext->firstVolume              = LVM_TRUE;
+        pContext->pBundledContext->volume                   = 0;
 
         #ifdef LVM_PCM
         char fileName[256];
@@ -3299,13 +3264,13 @@ const struct effect_interface_s gLvmEffectInterface = {
     NULL,
 };    /* end gLvmEffectInterface */
 
+// This is the only symbol that needs to be exported
+__attribute__ ((visibility ("default")))
 audio_effect_library_t AUDIO_EFFECT_LIBRARY_INFO_SYM = {
     tag : AUDIO_EFFECT_LIBRARY_TAG,
     version : EFFECT_LIBRARY_API_VERSION,
     name : "Effect Bundle Library",
     implementor : "NXP Software Ltd.",
-    query_num_effects : android::EffectQueryNumberEffects,
-    query_effect : android::EffectQueryEffect,
     create_effect : android::EffectCreate,
     release_effect : android::EffectRelease,
     get_descriptor : android::EffectGetDescriptor,

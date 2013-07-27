@@ -23,6 +23,11 @@
 #include <binder/IServiceManager.h>
 
 #include <camera/ICameraService.h>
+#include <camera/ICameraServiceListener.h>
+#include <camera/IProCameraUser.h>
+#include <camera/IProCameraCallbacks.h>
+#include <camera/ICamera.h>
+#include <camera/ICameraClient.h>
 
 namespace android {
 
@@ -56,14 +61,49 @@ public:
     }
 
     // connect to camera service
-    virtual sp<ICamera> connect(const sp<ICameraClient>& cameraClient, int cameraId)
+    virtual sp<ICamera> connect(const sp<ICameraClient>& cameraClient, int cameraId,
+                                const String16 &clientPackageName, int clientUid)
     {
         Parcel data, reply;
         data.writeInterfaceToken(ICameraService::getInterfaceDescriptor());
         data.writeStrongBinder(cameraClient->asBinder());
         data.writeInt32(cameraId);
+        data.writeString16(clientPackageName);
+        data.writeInt32(clientUid);
         remote()->transact(BnCameraService::CONNECT, data, &reply);
         return interface_cast<ICamera>(reply.readStrongBinder());
+    }
+
+    // connect to camera service (pro client)
+    virtual sp<IProCameraUser> connect(const sp<IProCameraCallbacks>& cameraCb, int cameraId,
+                                       const String16 &clientPackageName, int clientUid)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(ICameraService::getInterfaceDescriptor());
+        data.writeStrongBinder(cameraCb->asBinder());
+        data.writeInt32(cameraId);
+        data.writeString16(clientPackageName);
+        data.writeInt32(clientUid);
+        remote()->transact(BnCameraService::CONNECT_PRO, data, &reply);
+        return interface_cast<IProCameraUser>(reply.readStrongBinder());
+    }
+
+    virtual status_t addListener(const sp<ICameraServiceListener>& listener)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(ICameraService::getInterfaceDescriptor());
+        data.writeStrongBinder(listener->asBinder());
+        remote()->transact(BnCameraService::ADD_LISTENER, data, &reply);
+        return reply.readInt32();
+    }
+
+    virtual status_t removeListener(const sp<ICameraServiceListener>& listener)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(ICameraService::getInterfaceDescriptor());
+        data.writeStrongBinder(listener->asBinder());
+        remote()->transact(BnCameraService::REMOVE_LISTENER, data, &reply);
+        return reply.readInt32();
     }
 };
 
@@ -92,9 +132,39 @@ status_t BnCameraService::onTransact(
         } break;
         case CONNECT: {
             CHECK_INTERFACE(ICameraService, data, reply);
-            sp<ICameraClient> cameraClient = interface_cast<ICameraClient>(data.readStrongBinder());
-            sp<ICamera> camera = connect(cameraClient, data.readInt32());
+            sp<ICameraClient> cameraClient =
+                    interface_cast<ICameraClient>(data.readStrongBinder());
+            int32_t cameraId = data.readInt32();
+            const String16 clientName = data.readString16();
+            int32_t clientUid = data.readInt32();
+            sp<ICamera> camera = connect(cameraClient, cameraId,
+                    clientName, clientUid);
             reply->writeStrongBinder(camera->asBinder());
+            return NO_ERROR;
+        } break;
+        case CONNECT_PRO: {
+            CHECK_INTERFACE(ICameraService, data, reply);
+            sp<IProCameraCallbacks> cameraClient = interface_cast<IProCameraCallbacks>(data.readStrongBinder());
+            int32_t cameraId = data.readInt32();
+            const String16 clientName = data.readString16();
+            int32_t clientUid = data.readInt32();
+            sp<IProCameraUser> camera = connect(cameraClient, cameraId,
+                                                clientName, clientUid);
+            reply->writeStrongBinder(camera->asBinder());
+            return NO_ERROR;
+        } break;
+        case ADD_LISTENER: {
+            CHECK_INTERFACE(ICameraService, data, reply);
+            sp<ICameraServiceListener> listener =
+                interface_cast<ICameraServiceListener>(data.readStrongBinder());
+            reply->writeInt32(addListener(listener));
+            return NO_ERROR;
+        } break;
+        case REMOVE_LISTENER: {
+            CHECK_INTERFACE(ICameraService, data, reply);
+            sp<ICameraServiceListener> listener =
+                interface_cast<ICameraServiceListener>(data.readStrongBinder());
+            reply->writeInt32(removeListener(listener));
             return NO_ERROR;
         } break;
         default:

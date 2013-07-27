@@ -33,7 +33,7 @@ class ANativeWindow;
 namespace android {
 
 class Surface;
-class ISurfaceTexture;
+class IGraphicBufferProducer;
 
 enum media_event_type {
     MEDIA_NOP               = 0, // interface test message
@@ -199,7 +199,7 @@ public:
             status_t        setDataSource(int fd, int64_t offset, int64_t length);
             status_t        setDataSource(const sp<IStreamSource> &source);
             status_t        setVideoSurfaceTexture(
-                                    const sp<ISurfaceTexture>& surfaceTexture);
+                                    const sp<IGraphicBufferProducer>& bufferProducer);
             status_t        setListener(const sp<MediaPlayerListener>& listener);
             status_t        prepare();
             status_t        prepareAsync();
@@ -231,6 +231,9 @@ public:
             status_t        getParameter(int key, Parcel* reply);
             status_t        setRetransmitEndpoint(const char* addrString, uint16_t port);
             status_t        setNextMediaPlayer(const sp<MediaPlayer>& player);
+
+            status_t updateProxyConfig(
+                    const char *host, int32_t port, const char *exclusionList);
 
 private:
             void            clear_l();

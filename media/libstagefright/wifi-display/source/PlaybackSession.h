@@ -18,7 +18,8 @@
 
 #define PLAYBACK_SESSION_H_
 
-#include "Sender.h"
+#include "MediaSender.h"
+#include "VideoFormats.h"
 #include "WifiDisplaySource.h"
 
 namespace android {
@@ -26,10 +27,11 @@ namespace android {
 struct ABuffer;
 struct BufferQueue;
 struct IHDCP;
-struct ISurfaceTexture;
+struct IGraphicBufferProducer;
 struct MediaPuller;
 struct MediaSource;
-struct TSPacketizer;
+struct MediaSender;
+struct NuMediaExtractor;
 
 // Encapsulates the state of an RTP/RTCP session in the context of wifi
 // display.
@@ -38,12 +40,20 @@ struct WifiDisplaySource::PlaybackSession : public AHandler {
             const sp<ANetworkSession> &netSession,
             const sp<AMessage> &notify,
             const struct in_addr &interfaceAddr,
-            const sp<IHDCP> &hdcp);
+            const sp<IHDCP> &hdcp,
+            const char *path = NULL);
 
     status_t init(
-            const char *clientIP, int32_t clientRtp, int32_t clientRtcp,
-            Sender::TransportMode transportMode,
-            bool usePCMAudio);
+            const char *clientIP,
+            int32_t clientRtp,
+            RTPSender::TransportMode rtpMode,
+            int32_t clientRtcp,
+            RTPSender::TransportMode rtcpMode,
+            bool enableAudio,
+            bool usePCMAudio,
+            bool enableVideo,
+            VideoFormats::ResolutionType videoResolutionType,
+            size_t videoResolutionIndex);
 
     void destroyAsync();
 
@@ -56,9 +66,7 @@ struct WifiDisplaySource::PlaybackSession : public AHandler {
     status_t finishPlay();
     status_t pause();
 
-    sp<ISurfaceTexture> getSurfaceTexture();
-    int32_t width() const;
-    int32_t height() const;
+    sp<IGraphicBufferProducer> getSurfaceTexture();
 
     void requestIDRFrame();
 
@@ -80,26 +88,27 @@ private:
         kWhatMediaPullerNotify,
         kWhatConverterNotify,
         kWhatTrackNotify,
-        kWhatSenderNotify,
         kWhatUpdateSurface,
-        kWhatFinishPlay,
-        kWhatPacketize,
         kWhatPause,
         kWhatResume,
+        kWhatMediaSenderNotify,
+        kWhatPullExtractorSample,
     };
 
     sp<ANetworkSession> mNetSession;
-    sp<Sender> mSender;
-    sp<ALooper> mSenderLooper;
     sp<AMessage> mNotify;
     in_addr mInterfaceAddr;
     sp<IHDCP> mHDCP;
+    AString mMediaPath;
+
+    sp<MediaSender> mMediaSender;
+    int32_t mLocalRTPPort;
+
     bool mWeAreDead;
     bool mPaused;
 
     int64_t mLastLifesignUs;
 
-    sp<TSPacketizer> mPacketizer;
     sp<BufferQueue> mBufferQueue;
 
     KeyedVector<size_t, sp<Track> > mTracks;
@@ -107,9 +116,21 @@ private:
 
     int64_t mPrevTimeUs;
 
-    bool mAllTracksHavePacketizerIndex;
+    sp<NuMediaExtractor> mExtractor;
+    KeyedVector<size_t, size_t> mExtractorTrackToInternalTrack;
+    bool mPullExtractorPending;
+    int32_t mPullExtractorGeneration;
+    int64_t mFirstSampleTimeRealUs;
+    int64_t mFirstSampleTimeUs;
 
-    status_t setupPacketizer(bool usePCMAudio);
+    status_t setupMediaPacketizer(bool enableAudio, bool enableVideo);
+
+    status_t setupPacketizer(
+            bool enableAudio,
+            bool usePCMAudio,
+            bool enableVideo,
+            VideoFormats::ResolutionType videoResolutionType,
+            size_t videoResolutionIndex);
 
     status_t addSource(
             bool isVideo,
@@ -118,29 +139,20 @@ private:
             bool usePCMAudio,
             size_t *numInputBuffers);
 
-    status_t addVideoSource();
+    status_t addVideoSource(
+            VideoFormats::ResolutionType videoResolutionType,
+            size_t videoResolutionIndex);
+
     status_t addAudioSource(bool usePCMAudio);
 
-    ssize_t appendTSData(
-            const void *data, size_t size, bool timeDiscontinuity, bool flush);
-
-    status_t onFinishPlay();
-    status_t onFinishPlay2();
-
-    bool allTracksHavePacketizerIndex();
-
-    status_t packetizeAccessUnit(
-            size_t trackIndex, sp<ABuffer> accessUnit,
-            sp<ABuffer> *packets);
-
-    status_t packetizeQueuedAccessUnits();
+    status_t onMediaSenderInitialized();
 
     void notifySessionDead();
 
-    void drainAccessUnits();
+    void schedulePullExtractor();
+    void onPullExtractor();
 
-    // Returns true iff an access unit was successfully drained.
-    bool drainAccessUnit();
+    void onSinkFeedback(const sp<AMessage> &msg);
 
     DISALLOW_EVIL_CONSTRUCTORS(PlaybackSession);
 };

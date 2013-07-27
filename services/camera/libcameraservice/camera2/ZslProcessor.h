@@ -25,9 +25,10 @@
 #include <gui/BufferItemConsumer.h>
 #include "Parameters.h"
 #include "FrameProcessor.h"
-#include "CameraMetadata.h"
+#include "camera/CameraMetadata.h"
 #include "Camera2Heap.h"
-#include "../Camera2Device.h"
+#include "../CameraDeviceBase.h"
+#include "ZslProcessorInterface.h"
 
 namespace android {
 
@@ -44,9 +45,10 @@ class ZslProcessor:
             virtual public Thread,
             virtual public BufferItemConsumer::FrameAvailableListener,
             virtual public FrameProcessor::FilteredListener,
-            virtual public Camera2Device::BufferReleasedListener {
+            virtual public CameraDeviceBase::BufferReleasedListener,
+                    public ZslProcessorInterface {
   public:
-    ZslProcessor(wp<Camera2Client> client, wp<CaptureSequencer> sequencer);
+    ZslProcessor(sp<Camera2Client> client, wp<CaptureSequencer> sequencer);
     ~ZslProcessor();
 
     // From mZslConsumer
@@ -56,10 +58,15 @@ class ZslProcessor:
 
     virtual void onBufferReleased(buffer_handle_t *handle);
 
+    /**
+     ****************************************
+     * ZslProcessorInterface implementation *
+     ****************************************
+     */
+
     status_t updateStream(const Parameters &params);
     status_t deleteStream();
     int getStreamId() const;
-    int getReprocessStreamId() const;
 
     status_t pushToReprocess(int32_t requestId);
     status_t clearZslQueue();
@@ -74,7 +81,9 @@ class ZslProcessor:
     } mState;
 
     wp<Camera2Client> mClient;
+    wp<CameraDeviceBase> mDevice;
     wp<CaptureSequencer> mSequencer;
+    int mId;
 
     mutable Mutex mInputMutex;
     bool mZslBufferAvailable;
@@ -109,7 +118,7 @@ class ZslProcessor:
 
     virtual bool threadLoop();
 
-    status_t processNewZslBuffer(sp<Camera2Client> &client);
+    status_t processNewZslBuffer();
 
     // Match up entries from frame list to buffers in ZSL queue
     void findMatchesLocked();

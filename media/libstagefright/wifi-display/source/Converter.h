@@ -51,6 +51,8 @@ struct Converter : public AHandler {
 
     void requestIDRFrame();
 
+    void dropAFrame();
+
     enum {
         kWhatAccessUnit,
         kWhatEOS,
@@ -63,9 +65,15 @@ struct Converter : public AHandler {
         kWhatShutdown,
         kWhatMediaPullerNotify,
         kWhatEncoderActivity,
+        kWhatDropAFrame,
     };
 
     void shutdownAsync();
+
+    int32_t getVideoBitrate() const;
+    void setVideoBitrate(int32_t bitrate);
+
+    static int32_t GetInt32Property(const char *propName, int32_t defaultValue);
 
 protected:
     virtual ~Converter();
@@ -100,7 +108,12 @@ private:
 
     sp<ABuffer> mPartialAudioAU;
 
+    int32_t mPrevVideoBitrate;
+
+    int32_t mNumFramesToDrop;
+
     status_t initEncoder();
+    void releaseEncoder();
 
     status_t feedEncoderInputBuffers();
 

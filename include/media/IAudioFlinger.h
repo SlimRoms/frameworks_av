@@ -1,9 +1,5 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- *
- * Not a Contribution, Apache license notifications and license are retained
- * for attribution purposes only.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,10 +24,6 @@
 #include <utils/RefBase.h>
 #include <utils/Errors.h>
 #include <binder/IInterface.h>
-#ifdef QCOM_HARDWARE
-#include <media/IDirectTrack.h>
-#include <media/IDirectTrackClient.h>
-#endif
 #include <media/IAudioTrack.h>
 #include <media/IAudioRecord.h>
 #include <media/IAudioFlingerClient.h>
@@ -64,41 +56,24 @@ public:
      * return null if the track cannot be created.
      */
     virtual sp<IAudioTrack> createTrack(
-                                pid_t pid,
                                 audio_stream_type_t streamType,
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
-                                int frameCount,
-                                track_flags_t flags,
+                                size_t frameCount,
+                                track_flags_t *flags,
                                 const sp<IMemory>& sharedBuffer,
                                 audio_io_handle_t output,
                                 pid_t tid,  // -1 means unused, otherwise must be valid non-0
                                 int *sessionId,
                                 status_t *status) = 0;
 
-#ifdef QCOM_HARDWARE
-    /* create a direct audio track and registers it with AudioFlinger.
-     * return null if the track cannot be created.
-     */
-    virtual sp<IDirectTrack> createDirectTrack(
-                                pid_t pid,
-                                uint32_t sampleRate,
-                                audio_channel_mask_t channelMask,
-                                audio_io_handle_t output,
-                                int *sessionId,
-                                IDirectTrackClient* client,
-                                audio_stream_type_t streamType,
-                                status_t *status) = 0;
-#endif
-
     virtual sp<IAudioRecord> openRecord(
-                                pid_t pid,
                                 audio_io_handle_t input,
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
-                                int frameCount,
+                                size_t frameCount,
                                 track_flags_t flags,
                                 pid_t tid,  // -1 means unused, otherwise must be valid non-0
                                 int *sessionId,
@@ -146,7 +121,8 @@ public:
 
     virtual     status_t    setParameters(audio_io_handle_t ioHandle,
                                     const String8& keyValuePairs) = 0;
-    virtual     String8     getParameters(audio_io_handle_t ioHandle, const String8& keys) const = 0;
+    virtual     String8     getParameters(audio_io_handle_t ioHandle, const String8& keys)
+                                    const = 0;
 
     // register a current process for audio output change notifications
     virtual void registerClient(const sp<IAudioFlingerClient>& client) = 0;
@@ -179,10 +155,10 @@ public:
 
     virtual status_t setVoiceVolume(float volume) = 0;
 
-    virtual status_t getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames,
+    virtual status_t getRenderPosition(size_t *halFrames, size_t *dspFrames,
                                     audio_io_handle_t output) const = 0;
 
-    virtual unsigned int getInputFramesLost(audio_io_handle_t ioHandle) const = 0;
+    virtual size_t getInputFramesLost(audio_io_handle_t ioHandle) const = 0;
 
     virtual int newAudioSessionId() = 0;
 
@@ -196,7 +172,7 @@ public:
     virtual status_t getEffectDescriptor(const effect_uuid_t *pEffectUUID,
                                         effect_descriptor_t *pDescriptor) const = 0;
 
-    virtual sp<IEffect> createEffect(pid_t pid,
+    virtual sp<IEffect> createEffect(
                                     effect_descriptor_t *pDesc,
                                     const sp<IEffectClient>& client,
                                     int32_t priority,
@@ -210,18 +186,12 @@ public:
                                     audio_io_handle_t dstOutput) = 0;
 
     virtual audio_module_handle_t loadHwModule(const char *name) = 0;
-#ifdef QCOM_HARDWARE
-    virtual status_t deregisterClient(const sp<IAudioFlingerClient>& client) { return false; };
-#endif
 
     // helpers for android.media.AudioManager.getProperty(), see description there for meaning
     // FIXME move these APIs to AudioPolicy to permit a more accurate implementation
     // that looks on primary device for a stream with fast flag, primary flag, or first one.
-    virtual int32_t getPrimaryOutputSamplingRate() = 0;
-    virtual int32_t getPrimaryOutputFrameCount() = 0;
-#ifdef QCOM_FM_ENABLED
-    virtual status_t setFmVolume(float volume) = 0;
-#endif
+    virtual uint32_t getPrimaryOutputSamplingRate() = 0;
+    virtual size_t getPrimaryOutputFrameCount() = 0;
 
 };
 

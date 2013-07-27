@@ -7,7 +7,7 @@ LOCAL_SRC_FILES:= \
 	EffectDownmix.c
 
 LOCAL_SHARED_LIBRARIES := \
-	libcutils
+	libcutils liblog
 
 LOCAL_MODULE:= libdownmix
 
@@ -24,5 +24,7 @@ LOCAL_C_INCLUDES := \
 	$(call include-path-for, audio-utils)
 
 LOCAL_PRELINK_MODULE := false
+
+LOCAL_CFLAGS += -fvisibility=hidden
 
 include $(BUILD_SHARED_LIBRARY)

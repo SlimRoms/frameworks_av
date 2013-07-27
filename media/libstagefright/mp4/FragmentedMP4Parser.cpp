@@ -18,6 +18,7 @@
 #define LOG_TAG "FragmentedMP4Parser"
 #include <utils/Log.h>
 
+#include "include/avc_utils.h"
 #include "include/ESDS.h"
 #include "include/FragmentedMP4Parser.h"
 #include "TrackFragment.h"
@@ -131,6 +132,10 @@ struct FileSource : public FragmentedMP4Parser::Source {
         : mFile(fopen(filename, "rb")) {
             CHECK(mFile != NULL);
         }
+
+    virtual ~FileSource() {
+        fclose(mFile);
+    }
 
     virtual ssize_t readAt(off64_t offset, void *data, size_t size) {
         fseek(mFile, offset, SEEK_SET);
@@ -319,8 +324,7 @@ status_t FragmentedMP4Parser::onSeekTo(bool wantAudio, int64_t position) {
         off_t totalOffset = mFirstMoofOffset;
         for (int i = 0; i < numSidxEntries; i++) {
             const SidxEntry *se = &info->mSidx[i];
-            totalTime += se->mDurationUs;
-            if (totalTime > position) {
+            if (totalTime + se->mDurationUs > position) {
                 mBuffer->setRange(0,0);
                 mBufferPos = totalOffset;
                 if (mFinalResult == ERROR_END_OF_STREAM) {
@@ -329,9 +333,10 @@ status_t FragmentedMP4Parser::onSeekTo(bool wantAudio, int64_t position) {
                     resumeIfNecessary();
                 }
                 info->mFragments.clear();
-                info->mDecodingTime = position * info->mMediaTimeScale / 1000000ll;
+                info->mDecodingTime = totalTime * info->mMediaTimeScale / 1000000ll;
                 return OK;
             }
+            totalTime += se->mDurationUs;
             totalOffset += se->mSize;
         }
     }
@@ -961,6 +966,10 @@ status_t FragmentedMP4Parser::makeAccessUnit(
                sample.mSize);
 
         (*accessUnit)->meta()->setInt64("timeUs", presentationTimeUs);
+        if (IsIDR(*accessUnit)) {
+            (*accessUnit)->meta()->setInt32("is-sync-frame", 1);
+        }
+
         return OK;
     }
 
@@ -1002,6 +1011,9 @@ status_t FragmentedMP4Parser::makeAccessUnit(
             (*accessUnit)->meta()->setInt64(
                     "timeUs", presentationTimeUs);
         }
+    }
+    if (IsIDR(*accessUnit)) {
+        (*accessUnit)->meta()->setInt32("is-sync-frame", 1);
     }
 
     return OK;
@@ -1971,8 +1983,8 @@ status_t FragmentedMP4Parser::parseTrackFragmentRun(
 }
 
 void FragmentedMP4Parser::copyBuffer(
-        sp<ABuffer> *dst, size_t offset, uint64_t size, size_t extra) const {
-    sp<ABuffer> buf = new ABuffer(size + extra);
+        sp<ABuffer> *dst, size_t offset, uint64_t size) const {
+    sp<ABuffer> buf = new ABuffer(size);
     memcpy(buf->data(), mBuffer->data() + offset, size);
 
     *dst = buf;

@@ -106,7 +106,15 @@ AudioMixer::AudioMixer(size_t frameCount, uint32_t sampleRate, uint32_t maxNumTr
     ALOG_ASSERT(maxNumTracks <= MAX_NUM_TRACKS, "maxNumTracks %u > MAX_NUM_TRACKS %u",
             maxNumTracks, MAX_NUM_TRACKS);
 
+    // AudioMixer is not yet capable of more than 32 active track inputs
+    ALOG_ASSERT(32 >= MAX_NUM_TRACKS, "bad MAX_NUM_TRACKS %d", MAX_NUM_TRACKS);
+
+    // AudioMixer is not yet capable of multi-channel output beyond stereo
+    ALOG_ASSERT(2 == MAX_NUM_CHANNELS, "bad MAX_NUM_CHANNELS %d", MAX_NUM_CHANNELS);
+
     LocalClock lc;
+
+    pthread_once(&sOnceControl, &sInitRoutine);
 
     mState.enabledTracks= 0;
     mState.needsChanged = 0;
@@ -114,6 +122,7 @@ AudioMixer::AudioMixer(size_t frameCount, uint32_t sampleRate, uint32_t maxNumTr
     mState.hook         = process__nop;
     mState.outputTemp   = NULL;
     mState.resampleTemp = NULL;
+    mState.mLog         = &mDummyLog;
     // mState.reserved
 
     // FIXME Most of the following initialization is probably redundant since
@@ -121,8 +130,6 @@ AudioMixer::AudioMixer(size_t frameCount, uint32_t sampleRate, uint32_t maxNumTr
     // and mTrackNames is initially 0.  However, leave it here until that's verified.
     track_t* t = mState.tracks;
     for (unsigned i=0 ; i < MAX_NUM_TRACKS ; i++) {
-        // FIXME redundant per track
-        t->localTimeFreq = lc.getLocalFreq();
         t->resampler = NULL;
         t->downmixerBufferProvider = NULL;
         t++;
@@ -163,6 +170,11 @@ AudioMixer::~AudioMixer()
     delete [] mState.resampleTemp;
 }
 
+void AudioMixer::setLog(NBLog::Writer *log)
+{
+    mState.mLog = log;
+}
+
 int AudioMixer::getTrackName(audio_channel_mask_t channelMask, int sessionId)
 {
     uint32_t names = (~mTrackNames) & mConfiguredNames;
@@ -192,7 +204,6 @@ int AudioMixer::getTrackName(audio_channel_mask_t channelMask, int sessionId)
         t->sessionId = sessionId;
         // setBufferProvider(name, AudioBufferProvider *) is required before enable(name)
         t->bufferProvider = NULL;
-        t->downmixerBufferProvider = NULL;
         t->buffer.raw = NULL;
         // no initialization needed
         // t->buffer.frameCount
@@ -203,7 +214,7 @@ int AudioMixer::getTrackName(audio_channel_mask_t channelMask, int sessionId)
         // setParameter(name, TRACK, MAIN_BUFFER, mixBuffer) is required before enable(name)
         t->mainBuffer = NULL;
         t->auxBuffer = NULL;
-        // see t->localTimeFreq in constructor above
+        t->downmixerBufferProvider = NULL;
 
         status_t status = initTrackDownmix(&mState.tracks[n], n, channelMask);
         if (status == OK) {
@@ -549,18 +560,14 @@ bool AudioMixer::track_t::setResampler(uint32_t value, uint32_t devSampleRate)
                       (value == 48000 && devSampleRate == 44100))) {
                     quality = AudioResampler::LOW_QUALITY;
                 } else {
-#ifdef QCOM_ENHANCED_AUDIO
-                    quality = AudioResampler::VERY_HIGH_QUALITY;
-#else
                     quality = AudioResampler::DEFAULT_QUALITY;
-#endif
                 }
                 resampler = AudioResampler::create(
                         format,
                         // the resampler sees the number of channels after the downmixer, if any
                         downmixerBufferProvider != NULL ? MAX_NUM_CHANNELS : channelCount,
                         devSampleRate, quality);
-                resampler->setLocalTimeFreq(localTimeFreq);
+                resampler->setLocalTimeFreq(sLocalTimeFreq);
             }
             return true;
         }
@@ -617,7 +624,6 @@ void AudioMixer::setBufferProvider(int name, AudioBufferProvider* bufferProvider
         mState.tracks[name].bufferProvider = bufferProvider;
     }
 }
-
 
 
 void AudioMixer::process(int64_t pts)
@@ -764,7 +770,8 @@ void AudioMixer::process__validate(state_t* state, int64_t pts)
 }
 
 
-void AudioMixer::track__genericResample(track_t* t, int32_t* out, size_t outFrameCount, int32_t* temp, int32_t* aux)
+void AudioMixer::track__genericResample(track_t* t, int32_t* out, size_t outFrameCount,
+        int32_t* temp, int32_t* aux)
 {
     t->resampler->setSampleRate(t->sampleRate);
 
@@ -797,11 +804,13 @@ void AudioMixer::track__genericResample(track_t* t, int32_t* out, size_t outFram
     }
 }
 
-void AudioMixer::track__nop(track_t* t, int32_t* out, size_t outFrameCount, int32_t* temp, int32_t* aux)
+void AudioMixer::track__nop(track_t* t, int32_t* out, size_t outFrameCount, int32_t* temp,
+        int32_t* aux)
 {
 }
 
-void AudioMixer::volumeRampStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp, int32_t* aux)
+void AudioMixer::volumeRampStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp,
+        int32_t* aux)
 {
     int32_t vl = t->prevVolume[0];
     int32_t vr = t->prevVolume[1];
@@ -843,7 +852,8 @@ void AudioMixer::volumeRampStereo(track_t* t, int32_t* out, size_t frameCount, i
     t->adjustVolumeRamp(aux != NULL);
 }
 
-void AudioMixer::volumeStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp, int32_t* aux)
+void AudioMixer::volumeStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp,
+        int32_t* aux)
 {
     const int16_t vl = t->volume[0];
     const int16_t vr = t->volume[1];
@@ -871,7 +881,8 @@ void AudioMixer::volumeStereo(track_t* t, int32_t* out, size_t frameCount, int32
     }
 }
 
-void AudioMixer::track__16BitsStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp, int32_t* aux)
+void AudioMixer::track__16BitsStereo(track_t* t, int32_t* out, size_t frameCount, int32_t* temp,
+        int32_t* aux)
 {
     const int16_t *in = static_cast<const int16_t *>(t->in);
 
@@ -961,7 +972,8 @@ void AudioMixer::track__16BitsStereo(track_t* t, int32_t* out, size_t frameCount
     t->in = in;
 }
 
-void AudioMixer::track__16BitsMono(track_t* t, int32_t* out, size_t frameCount, int32_t* temp, int32_t* aux)
+void AudioMixer::track__16BitsMono(track_t* t, int32_t* out, size_t frameCount, int32_t* temp,
+        int32_t* aux)
 {
     const int16_t *in = static_cast<int16_t const *>(t->in);
 
@@ -1057,33 +1069,37 @@ void AudioMixer::process__nop(state_t* state, int64_t pts)
         // avoid multiple memset() on same buffer
         uint32_t e1 = e0, e2 = e0;
         int i = 31 - __builtin_clz(e1);
-        track_t& t1 = state->tracks[i];
-        e2 &= ~(1<<i);
-        while (e2) {
-            i = 31 - __builtin_clz(e2);
+        {
+            track_t& t1 = state->tracks[i];
             e2 &= ~(1<<i);
-            track_t& t2 = state->tracks[i];
-            if (CC_UNLIKELY(t2.mainBuffer != t1.mainBuffer)) {
-                e1 &= ~(1<<i);
+            while (e2) {
+                i = 31 - __builtin_clz(e2);
+                e2 &= ~(1<<i);
+                track_t& t2 = state->tracks[i];
+                if (CC_UNLIKELY(t2.mainBuffer != t1.mainBuffer)) {
+                    e1 &= ~(1<<i);
+                }
             }
-        }
-        e0 &= ~(e1);
+            e0 &= ~(e1);
 
-        memset(t1.mainBuffer, 0, bufSize);
+            memset(t1.mainBuffer, 0, bufSize);
+        }
 
         while (e1) {
             i = 31 - __builtin_clz(e1);
             e1 &= ~(1<<i);
-            t1 = state->tracks[i];
-            size_t outFrames = state->frameCount;
-            while (outFrames) {
-                t1.buffer.frameCount = outFrames;
-                int64_t outputPTS = calculateOutputPTS(
-                    t1, pts, state->frameCount - outFrames);
-                t1.bufferProvider->getNextBuffer(&t1.buffer, outputPTS);
-                if (t1.buffer.raw == NULL) break;
-                outFrames -= t1.buffer.frameCount;
-                t1.bufferProvider->releaseBuffer(&t1.buffer);
+            {
+                track_t& t3 = state->tracks[i];
+                size_t outFrames = state->frameCount;
+                while (outFrames) {
+                    t3.buffer.frameCount = outFrames;
+                    int64_t outputPTS = calculateOutputPTS(
+                        t3, pts, state->frameCount - outFrames);
+                    t3.bufferProvider->getNextBuffer(&t3.buffer, outputPTS);
+                    if (t3.buffer.raw == NULL) break;
+                    outFrames -= t3.buffer.frameCount;
+                    t3.bufferProvider->releaseBuffer(&t3.buffer);
+                }
             }
         }
     }
@@ -1102,12 +1118,6 @@ void AudioMixer::process__genericNoResampling(state_t* state, int64_t pts)
         e0 &= ~(1<<i);
         track_t& t = state->tracks[i];
         t.buffer.frameCount = state->frameCount;
-        int valid = t.bufferProvider->getValid();
-        if (valid != AudioBufferProvider::kValid) {
-            ALOGE("invalid bufferProvider=%p name=%d frameCount=%d valid=%#x enabledTracks=%#x",
-                    t.bufferProvider, i, t.buffer.frameCount, valid, enabledTracks);
-            // expect to crash
-        }
         t.bufferProvider->getNextBuffer(&t.buffer, pts);
         t.frameCount = t.buffer.frameCount;
         t.in = t.buffer.raw;
@@ -1152,7 +1162,8 @@ void AudioMixer::process__genericNoResampling(state_t* state, int64_t pts)
                 while (outFrames) {
                     size_t inFrames = (t.frameCount > outFrames)?outFrames:t.frameCount;
                     if (inFrames) {
-                        t.hook(&t, outTemp + (BLOCKSIZE-outFrames)*MAX_NUM_CHANNELS, inFrames, state->resampleTemp, aux);
+                        t.hook(&t, outTemp + (BLOCKSIZE-outFrames)*MAX_NUM_CHANNELS, inFrames,
+                                state->resampleTemp, aux);
                         t.frameCount -= inFrames;
                         outFrames -= inFrames;
                         if (CC_UNLIKELY(aux != NULL)) {
@@ -1161,7 +1172,8 @@ void AudioMixer::process__genericNoResampling(state_t* state, int64_t pts)
                     }
                     if (t.frameCount == 0 && outFrames) {
                         t.bufferProvider->releaseBuffer(&t.buffer);
-                        t.buffer.frameCount = (state->frameCount - numFrames) - (BLOCKSIZE - outFrames);
+                        t.buffer.frameCount = (state->frameCount - numFrames) -
+                                (BLOCKSIZE - outFrames);
                         int64_t outputPTS = calculateOutputPTS(
                             t, pts, numFrames + (BLOCKSIZE - outFrames));
                         t.bufferProvider->getNextBuffer(&t.buffer, outputPTS);
@@ -1251,7 +1263,8 @@ void AudioMixer::process__genericResampling(state_t* state, int64_t pts)
                     if (CC_UNLIKELY(aux != NULL)) {
                         aux += outFrames;
                     }
-                    t.hook(&t, outTemp + outFrames*MAX_NUM_CHANNELS, t.buffer.frameCount, state->resampleTemp, aux);
+                    t.hook(&t, outTemp + outFrames*MAX_NUM_CHANNELS, t.buffer.frameCount,
+                            state->resampleTemp, aux);
                     outFrames += t.buffer.frameCount;
                     t.bufferProvider->releaseBuffer(&t.buffer);
                 }
@@ -1291,7 +1304,8 @@ void AudioMixer::process__OneTrack16BitsStereoNoResampling(state_t* state,
         // been enabled for mixing.
         if (in == NULL || ((unsigned long)in & 3)) {
             memset(out, 0, numFrames*MAX_NUM_CHANNELS*sizeof(int16_t));
-            ALOGE_IF(((unsigned long)in & 3), "process stereo track: input buffer alignment pb: buffer %p track %d, channels %d, needs %08x",
+            ALOGE_IF(((unsigned long)in & 3), "process stereo track: input buffer alignment pb: "
+                                              "buffer %p track %d, channels %d, needs %08x",
                     in, i, t.channelCount, t.needs);
             return;
         }
@@ -1433,7 +1447,16 @@ int64_t AudioMixer::calculateOutputPTS(const track_t& t, int64_t basePTS,
     if (AudioBufferProvider::kInvalidPTS == basePTS)
         return AudioBufferProvider::kInvalidPTS;
 
-    return basePTS + ((outputFrameIndex * t.localTimeFreq) / t.sampleRate);
+    return basePTS + ((outputFrameIndex * sLocalTimeFreq) / t.sampleRate);
+}
+
+/*static*/ uint64_t AudioMixer::sLocalTimeFreq;
+/*static*/ pthread_once_t AudioMixer::sOnceControl = PTHREAD_ONCE_INIT;
+
+/*static*/ void AudioMixer::sInitRoutine()
+{
+    LocalClock lc;
+    sLocalTimeFreq = lc.getLocalFreq();
 }
 
 // ----------------------------------------------------------------------------

@@ -29,6 +29,7 @@
 namespace android {
 
 class audio_track_cblk_t;
+class AudioRecordClientProxy;
 
 // ----------------------------------------------------------------------------
 
@@ -43,46 +44,43 @@ public:
      */
     enum event_type {
         EVENT_MORE_DATA = 0,        // Request to read more data from PCM buffer.
-        EVENT_OVERRUN = 1,          // PCM buffer overrun occured.
+        EVENT_OVERRUN = 1,          // PCM buffer overrun occurred.
         EVENT_MARKER = 2,           // Record head is at the specified marker position
                                     // (See setMarkerPosition()).
         EVENT_NEW_POS = 3,          // Record head is at a new position
                                     // (See setPositionUpdatePeriod()).
     };
 
-    /* Create Buffer on the stack and pass it to obtainBuffer()
-     * and releaseBuffer().
+    /* Client should declare Buffer on the stack and pass address to obtainBuffer()
+     * and releaseBuffer().  See also callback_t for EVENT_MORE_DATA.
      */
 
     class Buffer
     {
     public:
-        enum {
-            MUTE    = 0x00000001
-        };
-        uint32_t    flags;
-        int         channelCount;
-        audio_format_t format;
-        size_t      frameCount;
+        size_t      frameCount;     // number of sample frames corresponding to size;
+                                    // on input it is the number of frames available,
+                                    // on output is the number of frames actually drained
+
         size_t      size;           // total size in bytes == frameCount * frameSize
         union {
             void*       raw;
-            short*      i16;
-            int8_t*     i8;
+            short*      i16;        // signed 16-bit
+            int8_t*     i8;         // unsigned 8-bit, offset by 0x80
         };
     };
 
     /* As a convenience, if a callback is supplied, a handler thread
      * is automatically created with the appropriate priority. This thread
-     * invokes the callback when a new buffer becomes ready or an overrun condition occurs.
+     * invokes the callback when a new buffer becomes ready or various conditions occur.
      * Parameters:
      *
      * event:   type of event notified (see enum AudioRecord::event_type).
      * user:    Pointer to context for use by the callback receiver.
      * info:    Pointer to optional parameter according to event type:
      *          - EVENT_MORE_DATA: pointer to AudioRecord::Buffer struct. The callback must not read
-     *          more bytes than indicated by 'size' field and update 'size' if less bytes are
-     *          read.
+     *            more bytes than indicated by 'size' field and update 'size' if fewer bytes are
+     *            consumed.
      *          - EVENT_OVERRUN: unused.
      *          - EVENT_MARKER: pointer to const uint32_t containing the marker position in frames.
      *          - EVENT_NEW_POS: pointer to const uint32_t containing the new position in frames.
@@ -98,7 +96,7 @@ public:
      *  - BAD_VALUE: unsupported configuration
      */
 
-     static status_t getMinFrameCount(int* frameCount,
+     static status_t getMinFrameCount(size_t* frameCount,
                                       uint32_t sampleRate,
                                       audio_format_t format,
                                       audio_channel_mask_t channelMask);
@@ -108,7 +106,7 @@ public:
      */
                         AudioRecord();
 
-    /* Creates an AudioRecord track and registers it with AudioFlinger.
+    /* Creates an AudioRecord object and registers it with AudioFlinger.
      * Once created, the track needs to be started before it can be used.
      * Unspecified values are set to the audio hardware's current
      * values.
@@ -120,10 +118,13 @@ public:
      * format:             Audio format (e.g AUDIO_FORMAT_PCM_16_BIT for signed
      *                     16 bits per sample).
      * channelMask:        Channel mask.
-     * frameCount:         Total size of track PCM buffer in frames. This defines the
-     *                     latency of the track.
+     * frameCount:         Minimum size of track PCM buffer in frames. This defines the
+     *                     application's contribution to the
+     *                     latency of the track.  The actual size selected by the AudioRecord could
+     *                     be larger if the requested size is not compatible with current audio HAL
+     *                     latency.  Zero means to use a default value.
      * cbf:                Callback function. If not null, this function is called periodically
-     *                     to provide new PCM data.
+     *                     to consume new PCM data.
      * user:               Context for use by the callback receiver.
      * notificationFrames: The callback function is called each time notificationFrames PCM
      *                     frames are ready in record track output buffer.
@@ -154,7 +155,7 @@ public:
      *  - BAD_VALUE: invalid parameter (channels, format, sampleRate...)
      *  - NO_INIT: audio server or audio hardware not initialized
      *  - PERMISSION_DENIED: recording is not allowed for the requesting process
-     * */
+     */
             status_t    set(audio_source_t inputSource = AUDIO_SOURCE_DEFAULT,
                             uint32_t sampleRate = 0,
                             audio_format_t format = AUDIO_FORMAT_DEFAULT,
@@ -168,14 +169,14 @@ public:
 
 
     /* Result of constructing the AudioRecord. This must be checked
-     * before using any AudioRecord API (except for set()), using
+     * before using any AudioRecord API (except for set()), because using
      * an uninitialized AudioRecord produces undefined results.
      * See set() method above for possible return codes.
      */
             status_t    initCheck() const;
 
-    /* Returns this track's latency in milliseconds.
-     * This includes the latency due to AudioRecord buffer size
+    /* Returns this track's estimated latency in milliseconds.
+     * This includes the latency due to AudioRecord buffer size,
      * and audio hardware driver.
      */
             uint32_t     latency() const;
@@ -183,15 +184,15 @@ public:
    /* getters, see constructor and set() */
 
             audio_format_t format() const;
-            int         channelCount() const;
-            uint32_t    frameCount() const;
-            size_t      frameSize() const;
+            uint32_t    channelCount() const;
+            size_t      frameCount() const;
+            size_t      frameSize() const { return mFrameSize; }
             audio_source_t inputSource() const;
 
 
     /* After it's created the track is not active. Call start() to
      * make it active. If set, the callback will start being called.
-     * if event is not AudioSystem::SYNC_EVENT_NONE, the capture start will be delayed until
+     * If event is not AudioSystem::SYNC_EVENT_NONE, the capture start will be delayed until
      * the specified event occurs on the specified trigger session.
      */
             status_t    start(AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
@@ -199,12 +200,12 @@ public:
 
     /* Stop a track. If set, the callback will cease being called and
      * obtainBuffer returns STOPPED. Note that obtainBuffer() still works
-     * and will fill up buffers until the pool is exhausted.
+     * and will drain buffers until the pool is exhausted.
      */
             void        stop();
             bool        stopped() const;
 
-    /* get sample rate for this record track
+    /* Get sample rate for this record track in Hz.
      */
             uint32_t    getSampleRate() const;
 
@@ -258,7 +259,7 @@ public:
      */
             status_t    getPosition(uint32_t *position) const;
 
-    /* returns a handle on the audio input used by this AudioRecord.
+    /* Returns a handle on the audio input used by this AudioRecord.
      *
      * Parameters:
      *  none.
@@ -268,7 +269,7 @@ public:
      */
             audio_io_handle_t    getInput() const;
 
-    /* returns the audio session ID associated with this AudioRecord.
+    /* Returns the audio session ID associated with this AudioRecord.
      *
      * Parameters:
      *  none.
@@ -278,22 +279,30 @@ public:
      */
             int    getSessionId() const;
 
-    /* obtains a buffer of "frameCount" frames. The buffer must be
-     * filled entirely. If the track is stopped, obtainBuffer() returns
+    /* Obtains a buffer of "frameCount" frames. The buffer must be
+     * drained entirely, and then released with releaseBuffer().
+     * If the track is stopped, obtainBuffer() returns
      * STOPPED instead of NO_ERROR as long as there are buffers available,
      * at which point NO_MORE_BUFFERS is returned.
-     * Buffers will be returned until the pool (buffercount())
+     * Buffers will be returned until the pool
      * is exhausted, at which point obtainBuffer() will either block
      * or return WOULD_BLOCK depending on the value of the "blocking"
      * parameter.
+     *
+     * Interpretation of waitCount:
+     *  +n  limits wait time to n * WAIT_PERIOD_MS,
+     *  -1  causes an (almost) infinite wait time,
+     *   0  non-blocking.
      */
 
         enum {
-            NO_MORE_BUFFERS = 0x80000001,
+            NO_MORE_BUFFERS = 0x80000001,   // same name in AudioFlinger.h, ok to be different value
             STOPPED = 1
         };
 
             status_t    obtainBuffer(Buffer* audioBuffer, int32_t waitCount);
+
+    /* Release an emptied buffer of "frameCount" frames for AudioFlinger to re-fill. */
             void        releaseBuffer(Buffer* audioBuffer);
 
 
@@ -302,16 +311,16 @@ public:
      */
             ssize_t     read(void* buffer, size_t size);
 
-    /* Return the amount of input frames lost in the audio driver since the last call of this
+    /* Return the number of input frames lost in the audio driver since the last call of this
      * function.  Audio driver is expected to reset the value to 0 and restart counting upon
      * returning the current value by this function call.  Such loss typically occurs when the
      * user space process is blocked longer than the capacity of audio driver buffers.
-     * Unit: the number of input audio frames
+     * Units: the number of input audio frames.
      */
             unsigned int  getInputFramesLost() const;
 
 private:
-    /* copying audio tracks is not allowed */
+    /* copying audio record objects is not allowed */
                         AudioRecord(const AudioRecord& other);
             AudioRecord& operator = (const AudioRecord& other);
 
@@ -343,8 +352,7 @@ private:
 
             status_t openRecord_l(uint32_t sampleRate,
                                 audio_format_t format,
-                                audio_channel_mask_t channelMask,
-                                int frameCount,
+                                size_t frameCount,
                                 audio_io_handle_t input);
             audio_io_handle_t getInput_l();
             status_t restoreRecord_l(audio_track_cblk_t*& cblk);
@@ -355,7 +363,7 @@ private:
     bool                    mActive;            // protected by mLock
 
     // for client callback handler
-    callback_t              mCbf;
+    callback_t              mCbf;               // callback handler for events, or NULL
     void*                   mUserData;
 
     // for notification APIs
@@ -367,9 +375,11 @@ private:
     uint32_t                mUpdatePeriod;      // in ms
 
     // constant after constructor or set()
-    uint32_t                mFrameCount;
+    uint32_t                mSampleRate;
+    size_t                  mFrameCount;
     audio_format_t          mFormat;
     uint8_t                 mChannelCount;
+    size_t                  mFrameSize;         // app-level frame size == AudioFlinger frame size
     audio_source_t          mInputSource;
     status_t                mStatus;
     uint32_t                mLatency;
@@ -381,9 +391,11 @@ private:
     sp<IAudioRecord>        mAudioRecord;
     sp<IMemory>             mCblkMemory;
     audio_track_cblk_t*     mCblk;
+    void*                   mBuffers;           // starting address of buffers in shared memory
 
     int                     mPreviousPriority;          // before start()
     SchedPolicy             mPreviousSchedulingGroup;
+    AudioRecordClientProxy* mProxy;
 };
 
 }; // namespace android

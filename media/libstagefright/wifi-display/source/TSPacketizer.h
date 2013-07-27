@@ -32,7 +32,11 @@ struct AMessage;
 // Emits metadata tables (PAT and PMT) and timestamp stream (PCR) based
 // on flags.
 struct TSPacketizer : public RefBase {
-    TSPacketizer();
+    enum {
+        EMIT_HDCP20_DESCRIPTOR = 1,
+        EMIT_HDCP21_DESCRIPTOR = 2,
+    };
+    TSPacketizer(uint32_t flags);
 
     // Returns trackIndex or error.
     ssize_t addTrack(const sp<AMessage> &format);
@@ -50,6 +54,8 @@ struct TSPacketizer : public RefBase {
             const uint8_t *PES_private_data, size_t PES_private_data_len,
             size_t numStuffingBytes = 0);
 
+    status_t extractCSDIfNecessary(size_t trackIndex);
+
     // XXX to be removed once encoder config option takes care of this for
     // encrypted mode.
     sp<ABuffer> prependCSD(
@@ -66,7 +72,10 @@ private:
 
     struct Track;
 
+    uint32_t mFlags;
     Vector<sp<Track> > mTracks;
+
+    Vector<sp<ABuffer> > mProgramInfoDescriptors;
 
     unsigned mPATContinuityCounter;
     unsigned mPMTContinuityCounter;

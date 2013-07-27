@@ -32,11 +32,13 @@
 namespace android {
 
 NuPlayer::GenericSource::GenericSource(
+        const sp<AMessage> &notify,
         const char *url,
         const KeyedVector<String8, String8> *headers,
         bool uidValid,
         uid_t uid)
-    : mDurationUs(0ll),
+    : Source(notify),
+      mDurationUs(0ll),
       mAudioIsVorbis(false) {
     DataSource::RegisterDefaultSniffers();
 
@@ -48,8 +50,10 @@ NuPlayer::GenericSource::GenericSource(
 }
 
 NuPlayer::GenericSource::GenericSource(
+        const sp<AMessage> &notify,
         int fd, int64_t offset, int64_t length)
-    : mDurationUs(0ll),
+    : Source(notify),
+      mDurationUs(0ll),
       mAudioIsVorbis(false) {
     DataSource::RegisterDefaultSniffers();
 
@@ -100,6 +104,26 @@ void NuPlayer::GenericSource::initFromDataSource(
 }
 
 NuPlayer::GenericSource::~GenericSource() {
+}
+
+void NuPlayer::GenericSource::prepareAsync() {
+    if (mVideoTrack.mSource != NULL) {
+        sp<MetaData> meta = mVideoTrack.mSource->getFormat();
+
+        int32_t width, height;
+        CHECK(meta->findInt32(kKeyWidth, &width));
+        CHECK(meta->findInt32(kKeyHeight, &height));
+
+        notifyVideoSizeChanged(width, height);
+    }
+
+    notifyFlagsChanged(
+            FLAG_CAN_PAUSE
+            | FLAG_CAN_SEEK_BACKWARD
+            | FLAG_CAN_SEEK_FORWARD
+            | FLAG_CAN_SEEK);
+
+    notifyPrepared();
 }
 
 void NuPlayer::GenericSource::start() {
@@ -256,10 +280,6 @@ void NuPlayer::GenericSource::readBuffer(
             break;
         }
     }
-}
-
-uint32_t NuPlayer::GenericSource::flags() const {
-    return FLAG_SEEKABLE;
 }
 
 }  // namespace android

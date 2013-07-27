@@ -25,8 +25,7 @@
 #include <utils/Vector.h>
 #include <utils/KeyedVector.h>
 #include <camera/CameraParameters.h>
-
-#include "CameraMetadata.h"
+#include <camera/CameraMetadata.h>
 
 namespace android {
 namespace camera2 {
@@ -55,7 +54,7 @@ struct Parameters {
     int pictureWidth, pictureHeight;
 
     int32_t jpegThumbSize[2];
-    int32_t jpegQuality, jpegThumbQuality;
+    uint8_t jpegQuality, jpegThumbQuality;
     int32_t jpegRotation;
 
     bool gpsEnabled;
@@ -73,16 +72,16 @@ struct Parameters {
         FLASH_MODE_AUTO,
         FLASH_MODE_ON,
         FLASH_MODE_TORCH,
-        FLASH_MODE_RED_EYE = ANDROID_CONTROL_AE_ON_AUTO_FLASH_REDEYE,
+        FLASH_MODE_RED_EYE = ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH_REDEYE,
         FLASH_MODE_INVALID = -1
     } flashMode;
 
     enum focusMode_t {
-        FOCUS_MODE_AUTO = ANDROID_CONTROL_AF_AUTO,
-        FOCUS_MODE_MACRO = ANDROID_CONTROL_AF_MACRO,
-        FOCUS_MODE_CONTINUOUS_VIDEO = ANDROID_CONTROL_AF_CONTINUOUS_VIDEO,
-        FOCUS_MODE_CONTINUOUS_PICTURE = ANDROID_CONTROL_AF_CONTINUOUS_PICTURE,
-        FOCUS_MODE_EDOF = ANDROID_CONTROL_AF_EDOF,
+        FOCUS_MODE_AUTO = ANDROID_CONTROL_AF_MODE_AUTO,
+        FOCUS_MODE_MACRO = ANDROID_CONTROL_AF_MODE_MACRO,
+        FOCUS_MODE_CONTINUOUS_VIDEO = ANDROID_CONTROL_AF_MODE_CONTINUOUS_VIDEO,
+        FOCUS_MODE_CONTINUOUS_PICTURE = ANDROID_CONTROL_AF_MODE_CONTINUOUS_PICTURE,
+        FOCUS_MODE_EDOF = ANDROID_CONTROL_AF_MODE_EDOF,
         FOCUS_MODE_INFINITY,
         FOCUS_MODE_FIXED,
         FOCUS_MODE_INVALID = -1
@@ -158,7 +157,7 @@ struct Parameters {
     } state;
 
     // Number of zoom steps to simulate
-    static const unsigned int NUM_ZOOM_STEPS = 30;
+    static const unsigned int NUM_ZOOM_STEPS = 100;
 
     // Full static camera info, object owned by someone else, such as
     // Camera2Device.
@@ -179,11 +178,13 @@ struct Parameters {
             focusMode_t focusMode;
             OverrideModes():
                     flashMode(FLASH_MODE_INVALID),
-                    wbMode(ANDROID_CONTROL_AWB_OFF),
+                    wbMode(ANDROID_CONTROL_AWB_MODE_OFF),
                     focusMode(FOCUS_MODE_INVALID) {
             }
         };
         DefaultKeyedVector<uint8_t, OverrideModes> sceneModeOverrides;
+        float minFocalLength;
+        bool useFlexibleYuv;
     } fastInfo;
 
     // Quirks information; these are short-lived flags to enable workarounds for
@@ -214,7 +215,7 @@ struct Parameters {
     // max/minCount means to do no bounds check in that direction. In case of
     // error, the entry data pointer is null and the count is 0.
     camera_metadata_ro_entry_t staticInfo(uint32_t tag,
-            size_t minCount=0, size_t maxCount=0) const;
+            size_t minCount=0, size_t maxCount=0, bool required=true) const;
 
     // Validate and update camera parameters based on new settings
     status_t set(const String8 &paramString);
@@ -244,6 +245,9 @@ struct Parameters {
     };
     CropRegion calculateCropRegion(CropRegion::Outputs outputs) const;
 
+    // Calculate the field of view of the high-resolution JPEG capture
+    status_t calculatePictureFovs(float *horizFov, float *vertFov) const;
+
     // Static methods for debugging and converting between camera1 and camera2
     // parameters
 
@@ -261,6 +265,8 @@ struct Parameters {
     static const char* flashModeEnumToString(flashMode_t flashMode);
     static focusMode_t focusModeStringToEnum(const char *focusMode);
     static const char* focusModeEnumToString(focusMode_t focusMode);
+    static lightFxMode_t lightFxStringToEnum(const char *lightFxMode);
+
     static status_t parseAreas(const char *areasCStr,
             Vector<Area> *areas);
 

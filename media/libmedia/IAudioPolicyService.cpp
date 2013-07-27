@@ -55,7 +55,8 @@ enum {
     IS_SOURCE_ACTIVE,
     GET_DEVICES_FOR_STREAM,
     QUERY_DEFAULT_PRE_PROCESSING,
-    SET_EFFECT_ENABLED
+    SET_EFFECT_ENABLED,
+    IS_STREAM_ACTIVE_REMOTELY
 };
 
 class BpAudioPolicyService : public BpInterface<IAudioPolicyService>
@@ -330,6 +331,16 @@ public:
         return reply.readInt32();
     }
 
+    virtual bool isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs) const
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.writeInt32((int32_t) stream);
+        data.writeInt32(inPastMs);
+        remote()->transact(IS_STREAM_ACTIVE_REMOTELY, data, &reply);
+        return reply.readInt32();
+    }
+
     virtual bool isSourceActive(audio_source_t source) const
     {
         Parcel data, reply;
@@ -399,13 +410,15 @@ status_t BnAudioPolicyService::onTransact(
 
         case SET_PHONE_STATE: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            reply->writeInt32(static_cast <uint32_t>(setPhoneState((audio_mode_t) data.readInt32())));
+            reply->writeInt32(static_cast <uint32_t>(setPhoneState(
+                    (audio_mode_t) data.readInt32())));
             return NO_ERROR;
         } break;
 
         case SET_FORCE_USE: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            audio_policy_force_use_t usage = static_cast <audio_policy_force_use_t>(data.readInt32());
+            audio_policy_force_use_t usage = static_cast <audio_policy_force_use_t>(
+                    data.readInt32());
             audio_policy_forced_cfg_t config =
                     static_cast <audio_policy_forced_cfg_t>(data.readInt32());
             reply->writeInt32(static_cast <uint32_t>(setForceUse(usage, config)));
@@ -414,7 +427,8 @@ status_t BnAudioPolicyService::onTransact(
 
         case GET_FORCE_USE: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            audio_policy_force_use_t usage = static_cast <audio_policy_force_use_t>(data.readInt32());
+            audio_policy_force_use_t usage = static_cast <audio_policy_force_use_t>(
+                    data.readInt32());
             reply->writeInt32(static_cast <uint32_t>(getForceUse(usage)));
             return NO_ERROR;
         } break;
@@ -599,6 +613,14 @@ status_t BnAudioPolicyService::onTransact(
             audio_stream_type_t stream = (audio_stream_type_t) data.readInt32();
             uint32_t inPastMs = (uint32_t)data.readInt32();
             reply->writeInt32( isStreamActive((audio_stream_type_t) stream, inPastMs) );
+            return NO_ERROR;
+        } break;
+
+        case IS_STREAM_ACTIVE_REMOTELY: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            audio_stream_type_t stream = (audio_stream_type_t) data.readInt32();
+            uint32_t inPastMs = (uint32_t)data.readInt32();
+            reply->writeInt32( isStreamActiveRemotely((audio_stream_type_t) stream, inPastMs) );
             return NO_ERROR;
         } break;
 

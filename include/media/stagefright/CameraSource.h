@@ -25,6 +25,7 @@
 #include <camera/CameraParameters.h>
 #include <utils/List.h>
 #include <utils/RefBase.h>
+#include <utils/String16.h>
 
 namespace android {
 
@@ -39,9 +40,11 @@ public:
      * settings (such as video size, frame rate, color format, etc)
      * from the default camera.
      *
+     * @param clientName The package/process name of the client application.
+     *    This is used for permissions checking.
      * @return NULL on error.
      */
-    static CameraSource *Create();
+    static CameraSource *Create(const String16 &clientName);
 
     /**
      * Factory method to create a new CameraSource.
@@ -52,7 +55,11 @@ public:
      *
      * @param cameraId the id of the camera that the source will connect
      *          to if camera is NULL; otherwise ignored.
-     *
+     * @param clientName the package/process name of the camera-using
+     *          application if camera is NULL; otherwise ignored. Used for
+     *          permissions checking.
+     * @param clientUid the UID of the camera-using application if camera is
+     *          NULL; otherwise ignored. Used for permissions checking.
      * @param videoSize the dimension (in pixels) of the video frame
      * @param frameRate the target frames per second
      * @param surface the preview surface for display where preview
@@ -71,9 +78,11 @@ public:
     static CameraSource *CreateFromCamera(const sp<ICamera> &camera,
                                           const sp<ICameraRecordingProxy> &proxy,
                                           int32_t cameraId,
+                                          const String16& clientName,
+                                          uid_t clientUid,
                                           Size videoSize,
                                           int32_t frameRate,
-                                          const sp<Surface>& surface,
+                                          const sp<IGraphicBufferProducer>& surface,
                                           bool storeMetaDataInVideoBuffers = false);
 
     virtual ~CameraSource();
@@ -145,7 +154,7 @@ protected:
     sp<Camera>   mCamera;
     sp<ICameraRecordingProxy>   mCameraRecordingProxy;
     sp<DeathNotifier> mDeathNotifier;
-    sp<Surface>  mSurface;
+    sp<IGraphicBufferProducer>  mSurface;
     sp<MetaData> mMeta;
 
     int64_t mStartTimeUs;
@@ -158,9 +167,9 @@ protected:
     int64_t mTimeBetweenFrameCaptureUs;
 
     CameraSource(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy,
-                 int32_t cameraId,
+                 int32_t cameraId, const String16& clientName, uid_t clientUid,
                  Size videoSize, int32_t frameRate,
-                 const sp<Surface>& surface,
+                 const sp<IGraphicBufferProducer>& surface,
                  bool storeMetaDataInVideoBuffers);
 
     virtual void startCameraRecording();
@@ -198,17 +207,20 @@ private:
 
 
     status_t init(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy,
-                  int32_t cameraId, Size videoSize, int32_t frameRate,
-                  bool storeMetaDataInVideoBuffers);
+                  int32_t cameraId, const String16& clientName, uid_t clientUid,
+                  Size videoSize, int32_t frameRate, bool storeMetaDataInVideoBuffers);
 
     status_t initWithCameraAccess(
                   const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy,
-                  int32_t cameraId, Size videoSize, int32_t frameRate,
-                  bool storeMetaDataInVideoBuffers);
+                  int32_t cameraId, const String16& clientName, uid_t clientUid,
+                  Size videoSize, int32_t frameRate, bool storeMetaDataInVideoBuffers);
 
     status_t isCameraAvailable(const sp<ICamera>& camera,
                                const sp<ICameraRecordingProxy>& proxy,
-                               int32_t cameraId);
+                               int32_t cameraId,
+                               const String16& clientName,
+                               uid_t clientUid);
+
     status_t isCameraColorFormatSupported(const CameraParameters& params);
     status_t configureCamera(CameraParameters* params,
                     int32_t width, int32_t height,

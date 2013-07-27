@@ -41,6 +41,7 @@ protected:
     virtual void onQueueFilled(OMX_U32 portIndex);
     virtual void onPortFlushCompleted(OMX_U32 portIndex);
     virtual void onPortEnableCompleted(OMX_U32 portIndex, bool enabled);
+    virtual void onReset();
 
 private:
     enum {
@@ -51,7 +52,7 @@ private:
     HANDLE_AACDECODER mAACDecoder;
     CStreamInfo *mStreamInfo;
     bool mIsADTS;
-    bool mIsFirst;
+    bool mDecoderHasData;
     size_t mInputBufferCount;
     bool mSignalledError;
     int64_t mAnchorTimeUs;
@@ -67,6 +68,7 @@ private:
     status_t initDecoder();
     bool isConfigured() const;
     void maybeConfigureDownmix() const;
+    void drainDecoder();
 
     DISALLOW_EVIL_CONSTRUCTORS(SoftAAC2);
 };

@@ -24,7 +24,7 @@
 #include <media/IMediaPlayerService.h>
 #include <media/IMediaRecorder.h>
 #include <media/mediaplayer.h>  // for MEDIA_ERROR_SERVER_DIED
-#include <gui/ISurfaceTexture.h>
+#include <gui/IGraphicBufferProducer.h>
 
 namespace android {
 
@@ -49,7 +49,7 @@ status_t MediaRecorder::setCamera(const sp<ICamera>& camera, const sp<ICameraRec
     return ret;
 }
 
-status_t MediaRecorder::setPreviewSurface(const sp<Surface>& surface)
+status_t MediaRecorder::setPreviewSurface(const sp<IGraphicBufferProducer>& surface)
 {
     ALOGV("setPreviewSurface(%p)", surface.get());
     if (mMediaRecorder == NULL) {
@@ -348,9 +348,9 @@ status_t MediaRecorder::setVideoSize(int width, int height)
 }
 
 // Query a SurfaceMediaSurface through the Mediaserver, over the
-// binder interface. This is used by the Filter Framework (MeidaEncoder)
-// to get an <ISurfaceTexture> object to hook up to ANativeWindow.
-sp<ISurfaceTexture> MediaRecorder::
+// binder interface. This is used by the Filter Framework (MediaEncoder)
+// to get an <IGraphicBufferProducer> object to hook up to ANativeWindow.
+sp<IGraphicBufferProducer> MediaRecorder::
         querySurfaceMediaSourceFromMediaServer()
 {
     Mutex::Autolock _l(mLock);
@@ -620,7 +620,7 @@ MediaRecorder::MediaRecorder() : mSurfaceMediaSource(NULL)
 
     const sp<IMediaPlayerService>& service(getMediaPlayerService());
     if (service != NULL) {
-        mMediaRecorder = service->createMediaRecorder(getpid());
+        mMediaRecorder = service->createMediaRecorder();
     }
     if (mMediaRecorder != NULL) {
         mCurrentState = MEDIA_RECORDER_IDLE;
@@ -652,6 +652,27 @@ status_t MediaRecorder::setListener(const sp<MediaRecorderListener>& listener)
     ALOGV("setListener");
     Mutex::Autolock _l(mLock);
     mListener = listener;
+
+    return NO_ERROR;
+}
+
+status_t MediaRecorder::setClientName(const String16& clientName)
+{
+    ALOGV("setClientName");
+    if (mMediaRecorder == NULL) {
+        ALOGE("media recorder is not initialized yet");
+        return INVALID_OPERATION;
+    }
+    bool isInvalidState = (mCurrentState &
+                           (MEDIA_RECORDER_PREPARED |
+                            MEDIA_RECORDER_RECORDING |
+                            MEDIA_RECORDER_ERROR));
+    if (isInvalidState) {
+        ALOGE("setClientName is called in an invalid state: %d", mCurrentState);
+        return INVALID_OPERATION;
+    }
+
+    mMediaRecorder->setClientName(clientName);
 
     return NO_ERROR;
 }

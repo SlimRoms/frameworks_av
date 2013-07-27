@@ -1,7 +1,6 @@
 /*
 **
 ** Copyright 2010, The Android Open Source Project
-** Copyright (c) 2010 - 2012, The Linux Foundation. All rights reserved.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -46,10 +45,7 @@ const MediaProfiles::NameToTagMap MediaProfiles::sAudioEncoderNameMap[] = {
     {"amrwb",  AUDIO_ENCODER_AMR_WB},
     {"aac",    AUDIO_ENCODER_AAC},
     {"heaac",  AUDIO_ENCODER_HE_AAC},
-    {"aaceld", AUDIO_ENCODER_AAC_ELD},
-#ifdef QCOM_HARDWARE
-    {"lpcm",  AUDIO_ENCODER_LPCM},
-#endif
+    {"aaceld", AUDIO_ENCODER_AAC_ELD}
 };
 
 const MediaProfiles::NameToTagMap MediaProfiles::sFileFormatMap[] = {
@@ -59,9 +55,6 @@ const MediaProfiles::NameToTagMap MediaProfiles::sFileFormatMap[] = {
 
 const MediaProfiles::NameToTagMap MediaProfiles::sVideoDecoderNameMap[] = {
     {"wmv", VIDEO_DECODER_WMV}
-#ifdef OMAP_ENHANCEMENT
-    ,{"mpeg2", VIDEO_DECODER_MPEG2}
-#endif
 };
 
 const MediaProfiles::NameToTagMap MediaProfiles::sAudioDecoderNameMap[] = {
@@ -90,35 +83,31 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"timelapse720p", CAMCORDER_QUALITY_TIME_LAPSE_720P},
     {"timelapse1080p", CAMCORDER_QUALITY_TIME_LAPSE_1080P},
     {"timelapseqvga", CAMCORDER_QUALITY_TIME_LAPSE_QVGA},
-    {"timelapsevga", CAMCORDER_QUALITY_TIME_LAPSE_VGA},
-    {"timelapsewvga", CAMCORDER_QUALITY_TIME_LAPSE_WVGA},
-    {"timelapsefwvga", CAMCORDER_QUALITY_TIME_LAPSE_FWVGA},
-    {"timelapsewqvga", CAMCORDER_QUALITY_TIME_LAPSE_WQVGA},
 };
 
 /*static*/ void
 MediaProfiles::logVideoCodec(const MediaProfiles::VideoCodec& codec)
 {
-ALOGV("video codec:");
-ALOGV("codec = %d", codec.mCodec);
-ALOGV("bit rate: %d", codec.mBitRate);
-ALOGV("frame width: %d", codec.mFrameWidth);
-ALOGV("frame height: %d", codec.mFrameHeight);
-ALOGV("frame rate: %d", codec.mFrameRate);
+    ALOGV("video codec:");
+    ALOGV("codec = %d", codec.mCodec);
+    ALOGV("bit rate: %d", codec.mBitRate);
+    ALOGV("frame width: %d", codec.mFrameWidth);
+    ALOGV("frame height: %d", codec.mFrameHeight);
+    ALOGV("frame rate: %d", codec.mFrameRate);
 }
 
 /*static*/ void
 MediaProfiles::logAudioCodec(const MediaProfiles::AudioCodec& codec)
 {
-ALOGV("audio codec:");
-ALOGV("codec = %d", codec.mCodec);
-ALOGV("bit rate: %d", codec.mBitRate);
-ALOGV("sample rate: %d", codec.mSampleRate);
-ALOGV("number of channels: %d", codec.mChannels);
+    ALOGV("audio codec:");
+    ALOGV("codec = %d", codec.mCodec);
+    ALOGV("bit rate: %d", codec.mBitRate);
+    ALOGV("sample rate: %d", codec.mSampleRate);
+    ALOGV("number of channels: %d", codec.mChannels);
 }
 
 /*static*/ void
-    MediaProfiles::logVideoEncoderCap(const MediaProfiles::VideoEncoderCap& cap)
+MediaProfiles::logVideoEncoderCap(const MediaProfiles::VideoEncoderCap& cap)
 {
     ALOGV("video encoder cap:");
     ALOGV("codec = %d", cap.mCodec);
@@ -815,10 +804,6 @@ MediaProfiles::createDefaultCamcorderProfiles(MediaProfiles *profiles)
 MediaProfiles::createDefaultAudioEncoders(MediaProfiles *profiles)
 {
     profiles->mAudioEncoders.add(createDefaultAmrNBEncoderCap());
-#ifdef QCOM_HARDWARE
-    profiles->mAudioEncoders.add(createDefaultAacEncoderCap());
-    profiles->mAudioEncoders.add(createDefaultLpcmEncoderCap());
-#endif
 }
 
 /*static*/ void
@@ -852,22 +837,6 @@ MediaProfiles::createDefaultAmrNBEncoderCap()
     return new MediaProfiles::AudioEncoderCap(
         AUDIO_ENCODER_AMR_NB, 5525, 12200, 8000, 8000, 1, 1);
 }
-
-#ifdef QCOM_HARDWARE
-/*static*/ MediaProfiles::AudioEncoderCap*
-MediaProfiles::createDefaultAacEncoderCap()
-{
-    return new MediaProfiles::AudioEncoderCap(
-        AUDIO_ENCODER_AAC, 64000, 156000, 8000, 48000, 1, 2);
-}
-
-/*static*/ MediaProfiles::AudioEncoderCap*
-MediaProfiles::createDefaultLpcmEncoderCap()
-{
-    return new MediaProfiles::AudioEncoderCap(
-        AUDIO_ENCODER_LPCM, 768000, 4608000, 48000, 48000, 1, 6);
-}
-#endif
 
 /*static*/ void
 MediaProfiles::createDefaultImageEncodingQualityLevels(MediaProfiles *profiles)

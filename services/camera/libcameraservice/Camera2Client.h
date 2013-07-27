@@ -17,26 +17,26 @@
 #ifndef ANDROID_SERVERS_CAMERA_CAMERA2CLIENT_H
 #define ANDROID_SERVERS_CAMERA_CAMERA2CLIENT_H
 
-#include "Camera2Device.h"
+#include "CameraDeviceBase.h"
 #include "CameraService.h"
 #include "camera2/Parameters.h"
 #include "camera2/FrameProcessor.h"
 #include "camera2/StreamingProcessor.h"
 #include "camera2/JpegProcessor.h"
-#include "camera2/ZslProcessor.h"
+#include "camera2/ZslProcessorInterface.h"
 #include "camera2/CaptureSequencer.h"
 #include "camera2/CallbackProcessor.h"
+#include "Camera2ClientBase.h"
 
 namespace android {
 
 class IMemory;
 /**
- * Implements the android.hardware.camera API on top of
- * camera device HAL version 2.
+ * Interface between android.hardware.Camera API and Camera HAL device for versions
+ * CAMERA_DEVICE_API_VERSION_2_0 and 3_0.
  */
 class Camera2Client :
-        public CameraService::Client,
-        public Camera2Device::NotificationListener
+        public Camera2ClientBase<CameraService::Client>
 {
 public:
     /**
@@ -49,7 +49,7 @@ public:
     virtual status_t        unlock();
     virtual status_t        setPreviewDisplay(const sp<Surface>& surface);
     virtual status_t        setPreviewTexture(
-        const sp<ISurfaceTexture>& surfaceTexture);
+        const sp<IGraphicBufferProducer>& bufferProducer);
     virtual void            setPreviewCallbackFlag(int flag);
     virtual status_t        startPreview();
     virtual void            stopPreview();
@@ -61,11 +61,7 @@ public:
     virtual void            releaseRecordingFrame(const sp<IMemory>& mem);
     virtual status_t        autoFocus();
     virtual status_t        cancelAutoFocus();
-#ifdef OMAP_ENHANCEMENT_CPCAM
-    virtual status_t        takePicture(int msgType, const String8& params);
-#else
     virtual status_t        takePicture(int msgType);
-#endif
     virtual status_t        setParameters(const String8& params);
     virtual String8         getParameters() const;
     virtual status_t        sendCommand(int32_t cmd, int32_t arg1, int32_t arg2);
@@ -76,10 +72,14 @@ public:
 
     Camera2Client(const sp<CameraService>& cameraService,
             const sp<ICameraClient>& cameraClient,
+            const String16& clientPackageName,
             int cameraId,
             int cameraFacing,
             int clientPid,
-            int servicePid);
+            uid_t clientUid,
+            int servicePid,
+            int deviceVersion);
+
     virtual ~Camera2Client();
 
     status_t initialize(camera_module_t *module);
@@ -87,22 +87,16 @@ public:
     virtual status_t dump(int fd, const Vector<String16>& args);
 
     /**
-     * Interface used by Camera2Device
+     * Interface used by CameraDeviceBase
      */
 
-    virtual void notifyError(int errorCode, int arg1, int arg2);
-    virtual void notifyShutter(int frameNumber, nsecs_t timestamp);
     virtual void notifyAutoFocus(uint8_t newState, int triggerId);
     virtual void notifyAutoExposure(uint8_t newState, int triggerId);
-    virtual void notifyAutoWhitebalance(uint8_t newState, int triggerId);
 
     /**
      * Interface used by independent components of Camera2Client.
      */
 
-    int getCameraId() const;
-    const sp<Camera2Device>& getCameraDevice();
-    const sp<CameraService>& getCameraService();
     camera2::SharedParameters& getParameters();
 
     int getPreviewStreamId() const;
@@ -118,27 +112,6 @@ public:
 
     status_t stopStream();
 
-    // Simple class to ensure that access to ICameraClient is serialized by
-    // requiring mCameraClientLock to be locked before access to mCameraClient
-    // is possible.
-    class SharedCameraClient {
-      public:
-        class Lock {
-          public:
-            Lock(SharedCameraClient &client);
-            ~Lock();
-            sp<ICameraClient> &mCameraClient;
-          private:
-            SharedCameraClient &mSharedClient;
-        };
-        SharedCameraClient(const sp<ICameraClient>& client);
-        SharedCameraClient& operator=(const sp<ICameraClient>& client);
-        void clear();
-      private:
-        sp<ICameraClient> mCameraClient;
-        mutable Mutex mCameraClientLock;
-    } mSharedCameraClient;
-
     static size_t calculateBufferSize(int width, int height,
             int format, int stride);
 
@@ -153,15 +126,7 @@ public:
 
 private:
     /** ICamera interface-related private members */
-
-    // Mutex that must be locked by methods implementing the ICamera interface.
-    // Ensures serialization between incoming ICamera calls. All methods below
-    // that append 'L' to the name assume that mICameraLock is locked when
-    // they're called
-    mutable Mutex mICameraLock;
-
     typedef camera2::Parameters Parameters;
-    typedef camera2::CameraMetadata CameraMetadata;
 
     status_t setPreviewWindowL(const sp<IBinder>& binder,
             sp<ANativeWindow> window);
@@ -189,9 +154,16 @@ private:
 
     void     setPreviewCallbackFlagL(Parameters &params, int flag);
     status_t updateRequests(Parameters &params);
+    int mDeviceVersion;
 
     // Used with stream IDs
     static const int NO_STREAM = -1;
+
+    template <typename ProcessorT>
+    status_t updateProcessorStream(sp<ProcessorT> processor, Parameters params);
+    template <typename ProcessorT,
+              status_t (ProcessorT::*updateStreamF)(const Parameters &)>
+    status_t updateProcessorStream(sp<ProcessorT> processor, Parameters params);
 
     sp<camera2::FrameProcessor> mFrameProcessor;
 
@@ -208,23 +180,17 @@ private:
 
     sp<camera2::CaptureSequencer> mCaptureSequencer;
     sp<camera2::JpegProcessor> mJpegProcessor;
-    sp<camera2::ZslProcessor> mZslProcessor;
+    sp<camera2::ZslProcessorInterface> mZslProcessor;
+    sp<Thread> mZslProcessorThread;
 
     /** Notification-related members */
 
     bool mAfInMotion;
 
-    /** Camera2Device instance wrapping HAL2 entry */
-
-    sp<Camera2Device> mDevice;
-
     /** Utility members */
 
     // Wait until the camera device has received the latest control settings
     status_t syncWithDevice();
-
-    // Verify that caller is the owner of the camera
-    status_t checkPid(const char *checkLocation) const;
 };
 
 }; // namespace android

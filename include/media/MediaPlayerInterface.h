@@ -1,7 +1,4 @@
 /*
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
- * Not a Contribution.
- *
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +37,7 @@ namespace android {
 
 class Parcel;
 class Surface;
-class ISurfaceTexture;
+class IGraphicBufferProducer;
 
 template<typename T> class SortedVector;
 
@@ -90,9 +87,6 @@ public:
         virtual ssize_t     channelCount() const = 0;
         virtual ssize_t     frameSize() const = 0;
         virtual uint32_t    latency() const = 0;
-#ifdef QCOM_HARDWARE
-        virtual audio_stream_type_t    streamType() const {return AUDIO_STREAM_DEFAULT;}
-#endif
         virtual float       msecsPerFrame() const = 0;
         virtual status_t    getPosition(uint32_t *position) const = 0;
         virtual status_t    getFramesWritten(uint32_t *frameswritten) const = 0;
@@ -117,10 +111,6 @@ public:
 
         virtual status_t    setPlaybackRatePermille(int32_t rate) { return INVALID_OPERATION; }
         virtual bool        needsTrailingPadding() { return true; }
-#ifdef QCOM_HARDWARE
-        virtual ssize_t     sampleRate() const {return 0;};
-        virtual status_t    getTimeStamp(uint64_t *tstamp) {return 0;};
-#endif
     };
 
                         MediaPlayerBase() : mCookie(0), mNotify(0) {}
@@ -142,9 +132,9 @@ public:
         return INVALID_OPERATION;
     }
 
-    // pass the buffered ISurfaceTexture to the media player service
+    // pass the buffered IGraphicBufferProducer to the media player service
     virtual status_t    setVideoSurfaceTexture(
-                                const sp<ISurfaceTexture>& surfaceTexture) = 0;
+                                const sp<IGraphicBufferProducer>& bufferProducer) = 0;
 
     virtual status_t    prepare() = 0;
     virtual status_t    prepareAsync() = 0;
@@ -206,6 +196,11 @@ public:
     }
 
     virtual status_t dump(int fd, const Vector<String16> &args) const {
+        return INVALID_OPERATION;
+    }
+
+    virtual status_t updateProxyConfig(
+            const char *host, int32_t port, const char *exclusionList) {
         return INVALID_OPERATION;
     }
 

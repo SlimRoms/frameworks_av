@@ -23,14 +23,11 @@
 #include "Converter.h"
 #include "MediaPuller.h"
 #include "RepeaterSource.h"
-#include "Sender.h"
-#include "TSPacketizer.h"
 #include "include/avc_utils.h"
 #include "WifiDisplaySource.h"
 
 #include <binder/IServiceManager.h>
-#include <gui/ISurfaceComposer.h>
-#include <gui/SurfaceComposerClient.h>
+#include <cutils/properties.h>
 #include <media/IHDCP.h>
 #include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -41,10 +38,9 @@
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
-#include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
-#include <media/stagefright/MPEG2TSWriter.h>
+#include <media/stagefright/NuMediaExtractor.h>
 #include <media/stagefright/SurfaceMediaSource.h>
 #include <media/stagefright/Utils.h>
 
@@ -63,15 +59,18 @@ struct WifiDisplaySource::PlaybackSession::Track : public AHandler {
           const sp<MediaPuller> &mediaPuller,
           const sp<Converter> &converter);
 
+    Track(const sp<AMessage> &notify, const sp<AMessage> &format);
+
     void setRepeaterSource(const sp<RepeaterSource> &source);
 
     sp<AMessage> getFormat();
     bool isAudio() const;
 
     const sp<Converter> &converter() const;
-    ssize_t packetizerTrackIndex() const;
+    const sp<RepeaterSource> &repeaterSource() const;
 
-    void setPacketizerTrackIndex(size_t index);
+    ssize_t mediaSenderTrackIndex() const;
+    void setMediaSenderTrackIndex(size_t index);
 
     status_t start();
     void stopAsync();
@@ -110,8 +109,9 @@ private:
     sp<ALooper> mCodecLooper;
     sp<MediaPuller> mMediaPuller;
     sp<Converter> mConverter;
+    sp<AMessage> mFormat;
     bool mStarted;
-    ssize_t mPacketizerTrackIndex;
+    ssize_t mMediaSenderTrackIndex;
     bool mIsAudio;
     List<sp<ABuffer> > mQueuedAccessUnits;
     sp<RepeaterSource> mRepeaterSource;
@@ -135,8 +135,16 @@ WifiDisplaySource::PlaybackSession::Track::Track(
       mMediaPuller(mediaPuller),
       mConverter(converter),
       mStarted(false),
-      mPacketizerTrackIndex(-1),
       mIsAudio(IsAudioFormat(mConverter->getOutputFormat())),
+      mLastOutputBufferQueuedTimeUs(-1ll) {
+}
+
+WifiDisplaySource::PlaybackSession::Track::Track(
+        const sp<AMessage> &notify, const sp<AMessage> &format)
+    : mNotify(notify),
+      mFormat(format),
+      mStarted(false),
+      mIsAudio(IsAudioFormat(format)),
       mLastOutputBufferQueuedTimeUs(-1ll) {
 }
 
@@ -154,7 +162,7 @@ bool WifiDisplaySource::PlaybackSession::Track::IsAudioFormat(
 }
 
 sp<AMessage> WifiDisplaySource::PlaybackSession::Track::getFormat() {
-    return mConverter->getOutputFormat();
+    return mFormat != NULL ? mFormat : mConverter->getOutputFormat();
 }
 
 bool WifiDisplaySource::PlaybackSession::Track::isAudio() const {
@@ -165,13 +173,19 @@ const sp<Converter> &WifiDisplaySource::PlaybackSession::Track::converter() cons
     return mConverter;
 }
 
-ssize_t WifiDisplaySource::PlaybackSession::Track::packetizerTrackIndex() const {
-    return mPacketizerTrackIndex;
+const sp<RepeaterSource> &
+WifiDisplaySource::PlaybackSession::Track::repeaterSource() const {
+    return mRepeaterSource;
 }
 
-void WifiDisplaySource::PlaybackSession::Track::setPacketizerTrackIndex(size_t index) {
-    CHECK_LT(mPacketizerTrackIndex, 0);
-    mPacketizerTrackIndex = index;
+ssize_t WifiDisplaySource::PlaybackSession::Track::mediaSenderTrackIndex() const {
+    CHECK_GE(mMediaSenderTrackIndex, 0);
+    return mMediaSenderTrackIndex;
+}
+
+void WifiDisplaySource::PlaybackSession::Track::setMediaSenderTrackIndex(
+        size_t index) {
+    mMediaSenderTrackIndex = index;
 }
 
 status_t WifiDisplaySource::PlaybackSession::Track::start() {
@@ -195,7 +209,9 @@ status_t WifiDisplaySource::PlaybackSession::Track::start() {
 void WifiDisplaySource::PlaybackSession::Track::stopAsync() {
     ALOGV("Track::stopAsync isAudio=%d", mIsAudio);
 
-    mConverter->shutdownAsync();
+    if (mConverter != NULL) {
+        mConverter->shutdownAsync();
+    }
 
     sp<AMessage> msg = new AMessage(kWhatMediaPullerStopped, id());
 
@@ -207,6 +223,7 @@ void WifiDisplaySource::PlaybackSession::Track::stopAsync() {
 
         mMediaPuller->stopAsync(msg);
     } else {
+        mStarted = false;
         msg->post();
     }
 }
@@ -330,45 +347,68 @@ WifiDisplaySource::PlaybackSession::PlaybackSession(
         const sp<ANetworkSession> &netSession,
         const sp<AMessage> &notify,
         const in_addr &interfaceAddr,
-        const sp<IHDCP> &hdcp)
+        const sp<IHDCP> &hdcp,
+        const char *path)
     : mNetSession(netSession),
       mNotify(notify),
       mInterfaceAddr(interfaceAddr),
       mHDCP(hdcp),
+      mLocalRTPPort(-1),
       mWeAreDead(false),
       mPaused(false),
       mLastLifesignUs(),
       mVideoTrackIndex(-1),
       mPrevTimeUs(-1ll),
-      mAllTracksHavePacketizerIndex(false) {
+      mPullExtractorPending(false),
+      mPullExtractorGeneration(0),
+      mFirstSampleTimeRealUs(-1ll),
+      mFirstSampleTimeUs(-1ll) {
+    if (path != NULL) {
+        mMediaPath.setTo(path);
+    }
 }
 
 status_t WifiDisplaySource::PlaybackSession::init(
-        const char *clientIP, int32_t clientRtp, int32_t clientRtcp,
-        Sender::TransportMode transportMode,
-        bool usePCMAudio) {
-    status_t err = setupPacketizer(usePCMAudio);
+        const char *clientIP,
+        int32_t clientRtp,
+        RTPSender::TransportMode rtpMode,
+        int32_t clientRtcp,
+        RTPSender::TransportMode rtcpMode,
+        bool enableAudio,
+        bool usePCMAudio,
+        bool enableVideo,
+        VideoFormats::ResolutionType videoResolutionType,
+        size_t videoResolutionIndex) {
+    sp<AMessage> notify = new AMessage(kWhatMediaSenderNotify, id());
+    mMediaSender = new MediaSender(mNetSession, notify);
+    looper()->registerHandler(mMediaSender);
 
-    if (err != OK) {
-        return err;
+    mMediaSender->setHDCP(mHDCP);
+
+    status_t err = setupPacketizer(
+            enableAudio,
+            usePCMAudio,
+            enableVideo,
+            videoResolutionType,
+            videoResolutionIndex);
+
+    if (err == OK) {
+        err = mMediaSender->initAsync(
+                -1 /* trackIndex */,
+                clientIP,
+                clientRtp,
+                rtpMode,
+                clientRtcp,
+                rtcpMode,
+                &mLocalRTPPort);
     }
 
-    sp<AMessage> notify = new AMessage(kWhatSenderNotify, id());
-    mSender = new Sender(mNetSession, notify);
-
-    mSenderLooper = new ALooper;
-    mSenderLooper->setName("sender_looper");
-
-    mSenderLooper->start(
-            false /* runOnCallingThread */,
-            false /* canCallJava */,
-            PRIORITY_AUDIO);
-
-    mSenderLooper->registerHandler(mSender);
-
-    err = mSender->init(clientIP, clientRtp, clientRtcp, transportMode);
-
     if (err != OK) {
+        mLocalRTPPort = -1;
+
+        looper()->unregisterHandler(mMediaSender->id());
+        mMediaSender.clear();
+
         return err;
     }
 
@@ -381,7 +421,7 @@ WifiDisplaySource::PlaybackSession::~PlaybackSession() {
 }
 
 int32_t WifiDisplaySource::PlaybackSession::getRTPPort() const {
-    return mSender->getRTPPort();
+    return mLocalRTPPort;
 }
 
 int64_t WifiDisplaySource::PlaybackSession::getLastLifesignUs() const {
@@ -400,19 +440,7 @@ status_t WifiDisplaySource::PlaybackSession::play() {
     return OK;
 }
 
-status_t WifiDisplaySource::PlaybackSession::finishPlay() {
-    // XXX Give the dongle a second to bind its sockets.
-    (new AMessage(kWhatFinishPlay, id()))->post(1000000ll);
-    return OK;
-}
-
-status_t WifiDisplaySource::PlaybackSession::onFinishPlay() {
-    return mSender->finishInit();
-}
-
-status_t WifiDisplaySource::PlaybackSession::onFinishPlay2() {
-    mSender->scheduleSendSR();
-
+status_t WifiDisplaySource::PlaybackSession::onMediaSenderInitialized() {
     for (size_t i = 0; i < mTracks.size(); ++i) {
         CHECK_EQ((status_t)OK, mTracks.editValueAt(i)->start());
     }
@@ -459,44 +487,18 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
             CHECK(msg->findSize("trackIndex", &trackIndex));
 
             if (what == Converter::kWhatAccessUnit) {
-                const sp<Track> &track = mTracks.valueFor(trackIndex);
-
-                ssize_t packetizerTrackIndex = track->packetizerTrackIndex();
-
-                if (packetizerTrackIndex < 0) {
-                    sp<AMessage> trackFormat = track->getFormat()->dup();
-                    if (mHDCP != NULL && !track->isAudio()) {
-                        // HDCP2.0 _and_ HDCP 2.1 specs say to set the version
-                        // inside the HDCP descriptor to 0x20!!!
-                        trackFormat->setInt32("hdcp-version", 0x20);
-                    }
-                    packetizerTrackIndex = mPacketizer->addTrack(trackFormat);
-
-                    CHECK_GE(packetizerTrackIndex, 0);
-
-                    track->setPacketizerTrackIndex(packetizerTrackIndex);
-
-                    if (allTracksHavePacketizerIndex()) {
-                        status_t err = packetizeQueuedAccessUnits();
-
-                        if (err != OK) {
-                            notifySessionDead();
-                            break;
-                        }
-                    }
-                }
-
                 sp<ABuffer> accessUnit;
                 CHECK(msg->findBuffer("accessUnit", &accessUnit));
 
-                if (!allTracksHavePacketizerIndex()) {
-                    track->queueAccessUnit(accessUnit);
-                    break;
+                const sp<Track> &track = mTracks.valueFor(trackIndex);
+
+                status_t err = mMediaSender->queueAccessUnit(
+                        track->mediaSenderTrackIndex(),
+                        accessUnit);
+
+                if (err != OK) {
+                    notifySessionDead();
                 }
-
-                track->queueOutputBuffer(accessUnit);
-
-                drainAccessUnits();
                 break;
             } else if (what == Converter::kWhatEOS) {
                 CHECK_EQ(what, Converter::kWhatEOS);
@@ -528,25 +530,38 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
             break;
         }
 
-        case kWhatSenderNotify:
+        case kWhatMediaSenderNotify:
         {
             int32_t what;
             CHECK(msg->findInt32("what", &what));
 
-            if (what == Sender::kWhatInitDone) {
-                onFinishPlay2();
-            } else if (what == Sender::kWhatSessionDead) {
+            if (what == MediaSender::kWhatInitDone) {
+                status_t err;
+                CHECK(msg->findInt32("err", &err));
+
+                if (err == OK) {
+                    onMediaSenderInitialized();
+                } else {
+                    notifySessionDead();
+                }
+            } else if (what == MediaSender::kWhatError) {
                 notifySessionDead();
+            } else if (what == MediaSender::kWhatNetworkStall) {
+                size_t numBytesQueued;
+                CHECK(msg->findSize("numBytesQueued", &numBytesQueued));
+
+                if (mVideoTrackIndex >= 0) {
+                    const sp<Track> &videoTrack =
+                        mTracks.valueFor(mVideoTrackIndex);
+
+                    sp<Converter> converter = videoTrack->converter();
+                    if (converter != NULL) {
+                        converter->dropAFrame();
+                    }
+                }
             } else {
                 TRESPASS();
             }
-
-            break;
-        }
-
-        case kWhatFinishPlay:
-        {
-            onFinishPlay();
             break;
         }
 
@@ -571,11 +586,8 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
                     break;
                 }
 
-                mSenderLooper->unregisterHandler(mSender->id());
-                mSender.clear();
-                mSenderLooper.clear();
-
-                mPacketizer.clear();
+                looper()->unregisterHandler(mMediaSender->id());
+                mMediaSender.clear();
 
                 sp<AMessage> notify = mNotify->dup();
                 notify->setInt32("what", kWhatSessionDestroyed);
@@ -584,30 +596,14 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
             break;
         }
 
-        case kWhatPacketize:
-        {
-            size_t trackIndex;
-            CHECK(msg->findSize("trackIndex", &trackIndex));
-
-            sp<ABuffer> accessUnit;
-            CHECK(msg->findBuffer("accessUnit", &accessUnit));
-
-#if 0
-            if ((ssize_t)trackIndex == mVideoTrackIndex) {
-                int64_t nowUs = ALooper::GetNowUs();
-                static int64_t prevNowUs = 0ll;
-
-                ALOGI("sending AU, dNowUs=%lld us", nowUs - prevNowUs);
-
-                prevNowUs = nowUs;
-            }
-#endif
-
-            break;
-        }
-
         case kWhatPause:
         {
+            if (mExtractor != NULL) {
+                ++mPullExtractorGeneration;
+                mFirstSampleTimeRealUs = -1ll;
+                mFirstSampleTimeUs = -1ll;
+            }
+
             if (mPaused) {
                 break;
             }
@@ -622,6 +618,10 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
 
         case kWhatResume:
         {
+            if (mExtractor != NULL) {
+                schedulePullExtractor();
+            }
+
             if (!mPaused) {
                 break;
             }
@@ -634,18 +634,175 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
             break;
         }
 
+        case kWhatPullExtractorSample:
+        {
+            int32_t generation;
+            CHECK(msg->findInt32("generation", &generation));
+
+            if (generation != mPullExtractorGeneration) {
+                break;
+            }
+
+            mPullExtractorPending = false;
+
+            onPullExtractor();
+            break;
+        }
+
         default:
             TRESPASS();
     }
 }
 
-status_t WifiDisplaySource::PlaybackSession::setupPacketizer(bool usePCMAudio) {
-    mPacketizer = new TSPacketizer;
+status_t WifiDisplaySource::PlaybackSession::setupMediaPacketizer(
+        bool enableAudio, bool enableVideo) {
+    DataSource::RegisterDefaultSniffers();
 
-    status_t err = addVideoSource();
+    mExtractor = new NuMediaExtractor;
+
+    status_t err = mExtractor->setDataSource(mMediaPath.c_str());
 
     if (err != OK) {
         return err;
+    }
+
+    size_t n = mExtractor->countTracks();
+    bool haveAudio = false;
+    bool haveVideo = false;
+    for (size_t i = 0; i < n; ++i) {
+        sp<AMessage> format;
+        err = mExtractor->getTrackFormat(i, &format);
+
+        if (err != OK) {
+            continue;
+        }
+
+        AString mime;
+        CHECK(format->findString("mime", &mime));
+
+        bool isAudio = !strncasecmp(mime.c_str(), "audio/", 6);
+        bool isVideo = !strncasecmp(mime.c_str(), "video/", 6);
+
+        if (isAudio && enableAudio && !haveAudio) {
+            haveAudio = true;
+        } else if (isVideo && enableVideo && !haveVideo) {
+            haveVideo = true;
+        } else {
+            continue;
+        }
+
+        err = mExtractor->selectTrack(i);
+
+        size_t trackIndex = mTracks.size();
+
+        sp<AMessage> notify = new AMessage(kWhatTrackNotify, id());
+        notify->setSize("trackIndex", trackIndex);
+
+        sp<Track> track = new Track(notify, format);
+        looper()->registerHandler(track);
+
+        mTracks.add(trackIndex, track);
+
+        mExtractorTrackToInternalTrack.add(i, trackIndex);
+
+        if (isVideo) {
+            mVideoTrackIndex = trackIndex;
+        }
+
+        uint32_t flags = MediaSender::FLAG_MANUALLY_PREPEND_SPS_PPS;
+
+        ssize_t mediaSenderTrackIndex =
+            mMediaSender->addTrack(format, flags);
+        CHECK_GE(mediaSenderTrackIndex, 0);
+
+        track->setMediaSenderTrackIndex(mediaSenderTrackIndex);
+
+        if ((haveAudio || !enableAudio) && (haveVideo || !enableVideo)) {
+            break;
+        }
+    }
+
+    return OK;
+}
+
+void WifiDisplaySource::PlaybackSession::schedulePullExtractor() {
+    if (mPullExtractorPending) {
+        return;
+    }
+
+    int64_t sampleTimeUs;
+    status_t err = mExtractor->getSampleTime(&sampleTimeUs);
+
+    int64_t nowUs = ALooper::GetNowUs();
+
+    if (mFirstSampleTimeRealUs < 0ll) {
+        mFirstSampleTimeRealUs = nowUs;
+        mFirstSampleTimeUs = sampleTimeUs;
+    }
+
+    int64_t whenUs = sampleTimeUs - mFirstSampleTimeUs + mFirstSampleTimeRealUs;
+
+    sp<AMessage> msg = new AMessage(kWhatPullExtractorSample, id());
+    msg->setInt32("generation", mPullExtractorGeneration);
+    msg->post(whenUs - nowUs);
+
+    mPullExtractorPending = true;
+}
+
+void WifiDisplaySource::PlaybackSession::onPullExtractor() {
+    sp<ABuffer> accessUnit = new ABuffer(1024 * 1024);
+    status_t err = mExtractor->readSampleData(accessUnit);
+    if (err != OK) {
+        // EOS.
+        return;
+    }
+
+    int64_t timeUs;
+    CHECK_EQ((status_t)OK, mExtractor->getSampleTime(&timeUs));
+
+    accessUnit->meta()->setInt64(
+            "timeUs", mFirstSampleTimeRealUs + timeUs - mFirstSampleTimeUs);
+
+    size_t trackIndex;
+    CHECK_EQ((status_t)OK, mExtractor->getSampleTrackIndex(&trackIndex));
+
+    sp<AMessage> msg = new AMessage(kWhatConverterNotify, id());
+
+    msg->setSize(
+            "trackIndex", mExtractorTrackToInternalTrack.valueFor(trackIndex));
+
+    msg->setInt32("what", Converter::kWhatAccessUnit);
+    msg->setBuffer("accessUnit", accessUnit);
+    msg->post();
+
+    mExtractor->advance();
+
+    schedulePullExtractor();
+}
+
+status_t WifiDisplaySource::PlaybackSession::setupPacketizer(
+        bool enableAudio,
+        bool usePCMAudio,
+        bool enableVideo,
+        VideoFormats::ResolutionType videoResolutionType,
+        size_t videoResolutionIndex) {
+    CHECK(enableAudio || enableVideo);
+
+    if (!mMediaPath.empty()) {
+        return setupMediaPacketizer(enableAudio, enableVideo);
+    }
+
+    if (enableVideo) {
+        status_t err = addVideoSource(
+                videoResolutionType, videoResolutionIndex);
+
+        if (err != OK) {
+            return err;
+        }
+    }
+
+    if (!enableAudio) {
+        return OK;
     }
 
     return addAudioSource(usePCMAudio);
@@ -732,30 +889,44 @@ status_t WifiDisplaySource::PlaybackSession::addSource(
         mVideoTrackIndex = trackIndex;
     }
 
+    uint32_t flags = 0;
+    if (converter->needToManuallyPrependSPSPPS()) {
+        flags |= MediaSender::FLAG_MANUALLY_PREPEND_SPS_PPS;
+    }
+
+    ssize_t mediaSenderTrackIndex =
+        mMediaSender->addTrack(converter->getOutputFormat(), flags);
+    CHECK_GE(mediaSenderTrackIndex, 0);
+
+    track->setMediaSenderTrackIndex(mediaSenderTrackIndex);
+
     return OK;
 }
 
-status_t WifiDisplaySource::PlaybackSession::addVideoSource() {
-    sp<SurfaceMediaSource> source = new SurfaceMediaSource(width(), height());
+status_t WifiDisplaySource::PlaybackSession::addVideoSource(
+        VideoFormats::ResolutionType videoResolutionType,
+        size_t videoResolutionIndex) {
+    size_t width, height, framesPerSecond;
+    bool interlaced;
+    CHECK(VideoFormats::GetConfiguration(
+                videoResolutionType,
+                videoResolutionIndex,
+                &width,
+                &height,
+                &framesPerSecond,
+                &interlaced));
+
+    sp<SurfaceMediaSource> source = new SurfaceMediaSource(width, height);
 
     source->setUseAbsoluteTimestamps();
 
-#if 1
     sp<RepeaterSource> videoSource =
-        new RepeaterSource(source, 30.0 /* rateHz */);
-#endif
+        new RepeaterSource(source, framesPerSecond);
 
-#if 1
     size_t numInputBuffers;
     status_t err = addSource(
             true /* isVideo */, videoSource, true /* isRepeaterSource */,
             false /* usePCMAudio */, &numInputBuffers);
-#else
-    size_t numInputBuffers;
-    status_t err = addSource(
-            true /* isVideo */, source, false /* isRepeaterSource */,
-            false /* usePCMAudio */, &numInputBuffers);
-#endif
 
     if (err != OK) {
         return err;
@@ -786,24 +957,8 @@ status_t WifiDisplaySource::PlaybackSession::addAudioSource(bool usePCMAudio) {
     return OK;
 }
 
-sp<ISurfaceTexture> WifiDisplaySource::PlaybackSession::getSurfaceTexture() {
+sp<IGraphicBufferProducer> WifiDisplaySource::PlaybackSession::getSurfaceTexture() {
     return mBufferQueue;
-}
-
-int32_t WifiDisplaySource::PlaybackSession::width() const {
-#if USE_1080P
-    return 1920;
-#else
-    return 1280;
-#endif
-}
-
-int32_t WifiDisplaySource::PlaybackSession::height() const {
-#if USE_1080P
-    return 1080;
-#else
-    return 720;
-#endif
 }
 
 void WifiDisplaySource::PlaybackSession::requestIDRFrame() {
@@ -814,168 +969,6 @@ void WifiDisplaySource::PlaybackSession::requestIDRFrame() {
     }
 }
 
-bool WifiDisplaySource::PlaybackSession::allTracksHavePacketizerIndex() {
-    if (mAllTracksHavePacketizerIndex) {
-        return true;
-    }
-
-    for (size_t i = 0; i < mTracks.size(); ++i) {
-        if (mTracks.valueAt(i)->packetizerTrackIndex() < 0) {
-            return false;
-        }
-    }
-
-    mAllTracksHavePacketizerIndex = true;
-
-    return true;
-}
-
-status_t WifiDisplaySource::PlaybackSession::packetizeAccessUnit(
-        size_t trackIndex, sp<ABuffer> accessUnit,
-        sp<ABuffer> *packets) {
-    const sp<Track> &track = mTracks.valueFor(trackIndex);
-
-    uint32_t flags = 0;
-
-    bool isHDCPEncrypted = false;
-    uint64_t inputCTR;
-    uint8_t HDCP_private_data[16];
-
-    bool manuallyPrependSPSPPS =
-        !track->isAudio()
-        && track->converter()->needToManuallyPrependSPSPPS()
-        && IsIDR(accessUnit);
-
-    if (mHDCP != NULL && !track->isAudio()) {
-        isHDCPEncrypted = true;
-
-        if (manuallyPrependSPSPPS) {
-            accessUnit = mPacketizer->prependCSD(
-                    track->packetizerTrackIndex(), accessUnit);
-        }
-
-        status_t err = mHDCP->encrypt(
-                accessUnit->data(), accessUnit->size(),
-                trackIndex  /* streamCTR */,
-                &inputCTR,
-                accessUnit->data());
-
-        if (err != OK) {
-            ALOGE("Failed to HDCP-encrypt media data (err %d)",
-                  err);
-
-            return err;
-        }
-
-        HDCP_private_data[0] = 0x00;
-
-        HDCP_private_data[1] =
-            (((trackIndex >> 30) & 3) << 1) | 1;
-
-        HDCP_private_data[2] = (trackIndex >> 22) & 0xff;
-
-        HDCP_private_data[3] =
-            (((trackIndex >> 15) & 0x7f) << 1) | 1;
-
-        HDCP_private_data[4] = (trackIndex >> 7) & 0xff;
-
-        HDCP_private_data[5] =
-            ((trackIndex & 0x7f) << 1) | 1;
-
-        HDCP_private_data[6] = 0x00;
-
-        HDCP_private_data[7] =
-            (((inputCTR >> 60) & 0x0f) << 1) | 1;
-
-        HDCP_private_data[8] = (inputCTR >> 52) & 0xff;
-
-        HDCP_private_data[9] =
-            (((inputCTR >> 45) & 0x7f) << 1) | 1;
-
-        HDCP_private_data[10] = (inputCTR >> 37) & 0xff;
-
-        HDCP_private_data[11] =
-            (((inputCTR >> 30) & 0x7f) << 1) | 1;
-
-        HDCP_private_data[12] = (inputCTR >> 22) & 0xff;
-
-        HDCP_private_data[13] =
-            (((inputCTR >> 15) & 0x7f) << 1) | 1;
-
-        HDCP_private_data[14] = (inputCTR >> 7) & 0xff;
-
-        HDCP_private_data[15] =
-            ((inputCTR & 0x7f) << 1) | 1;
-
-#if 0
-        ALOGI("HDCP_private_data:");
-        hexdump(HDCP_private_data, sizeof(HDCP_private_data));
-
-        ABitReader br(HDCP_private_data, sizeof(HDCP_private_data));
-        CHECK_EQ(br.getBits(13), 0);
-        CHECK_EQ(br.getBits(2), (trackIndex >> 30) & 3);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(15), (trackIndex >> 15) & 0x7fff);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(15), trackIndex & 0x7fff);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(11), 0);
-        CHECK_EQ(br.getBits(4), (inputCTR >> 60) & 0xf);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(15), (inputCTR >> 45) & 0x7fff);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(15), (inputCTR >> 30) & 0x7fff);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(15), (inputCTR >> 15) & 0x7fff);
-        CHECK_EQ(br.getBits(1), 1u);
-        CHECK_EQ(br.getBits(15), inputCTR & 0x7fff);
-        CHECK_EQ(br.getBits(1), 1u);
-#endif
-
-        flags |= TSPacketizer::IS_ENCRYPTED;
-    } else if (manuallyPrependSPSPPS) {
-        flags |= TSPacketizer::PREPEND_SPS_PPS_TO_IDR_FRAMES;
-    }
-
-    int64_t timeUs = ALooper::GetNowUs();
-    if (mPrevTimeUs < 0ll || mPrevTimeUs + 100000ll <= timeUs) {
-        flags |= TSPacketizer::EMIT_PCR;
-        flags |= TSPacketizer::EMIT_PAT_AND_PMT;
-
-        mPrevTimeUs = timeUs;
-    }
-
-    mPacketizer->packetize(
-            track->packetizerTrackIndex(), accessUnit, packets, flags,
-            !isHDCPEncrypted ? NULL : HDCP_private_data,
-            !isHDCPEncrypted ? 0 : sizeof(HDCP_private_data),
-            track->isAudio() ? 2 : 0 /* numStuffingBytes */);
-
-    return OK;
-}
-
-status_t WifiDisplaySource::PlaybackSession::packetizeQueuedAccessUnits() {
-    for (;;) {
-        bool gotMoreData = false;
-        for (size_t i = 0; i < mTracks.size(); ++i) {
-            size_t trackIndex = mTracks.keyAt(i);
-            const sp<Track> &track = mTracks.valueAt(i);
-
-            sp<ABuffer> accessUnit = track->dequeueAccessUnit();
-            if (accessUnit != NULL) {
-                track->queueOutputBuffer(accessUnit);
-                gotMoreData = true;
-            }
-        }
-
-        if (!gotMoreData) {
-            break;
-        }
-    }
-
-    return OK;
-}
-
 void WifiDisplaySource::PlaybackSession::notifySessionDead() {
     // Inform WifiDisplaySource of our premature death (wish).
     sp<AMessage> notify = mNotify->dup();
@@ -983,79 +976,6 @@ void WifiDisplaySource::PlaybackSession::notifySessionDead() {
     notify->post();
 
     mWeAreDead = true;
-}
-
-void WifiDisplaySource::PlaybackSession::drainAccessUnits() {
-    ALOGV("audio/video has %d/%d buffers ready.",
-            mTracks.valueFor(1)->countQueuedOutputBuffers(),
-            mTracks.valueFor(0)->countQueuedOutputBuffers());
-
-    while (drainAccessUnit()) {
-    }
-}
-
-bool WifiDisplaySource::PlaybackSession::drainAccessUnit() {
-    ssize_t minTrackIndex = -1;
-    int64_t minTimeUs = -1ll;
-
-    for (size_t i = 0; i < mTracks.size(); ++i) {
-        const sp<Track> &track = mTracks.valueAt(i);
-
-        int64_t timeUs;
-        if (track->hasOutputBuffer(&timeUs)) {
-            if (minTrackIndex < 0 || timeUs < minTimeUs) {
-                minTrackIndex = mTracks.keyAt(i);
-                minTimeUs = timeUs;
-            }
-        }
-#if SUSPEND_VIDEO_IF_IDLE
-        else if (!track->isSuspended()) {
-            // We still consider this track "live", so it should keep
-            // delivering output data whose time stamps we'll have to
-            // consider for proper interleaving.
-            return false;
-        }
-#else
-        else {
-            // We need access units available on all tracks to be able to
-            // dequeue the earliest one.
-            return false;
-        }
-#endif
-    }
-
-    if (minTrackIndex < 0) {
-        return false;
-    }
-
-    const sp<Track> &track = mTracks.valueFor(minTrackIndex);
-    sp<ABuffer> accessUnit = track->dequeueOutputBuffer();
-
-    sp<ABuffer> packets;
-    status_t err = packetizeAccessUnit(minTrackIndex, accessUnit, &packets);
-
-    if (err != OK) {
-        notifySessionDead();
-        return false;
-    }
-
-    if ((ssize_t)minTrackIndex == mVideoTrackIndex) {
-        packets->meta()->setInt32("isVideo", 1);
-    }
-    mSender->queuePackets(minTimeUs, packets);
-
-#if 0
-    if (minTrackIndex == mVideoTrackIndex) {
-        int64_t nowUs = ALooper::GetNowUs();
-
-        // Latency from "data acquired" to "ready to send if we wanted to".
-        ALOGI("[%s] latencyUs = %lld ms",
-              minTrackIndex == mVideoTrackIndex ? "video" : "audio",
-              (nowUs - minTimeUs) / 1000ll);
-    }
-#endif
-
-    return true;
 }
 
 }  // namespace android

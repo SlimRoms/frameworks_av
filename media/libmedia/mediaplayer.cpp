@@ -27,7 +27,7 @@
 #include <binder/IServiceManager.h>
 #include <binder/IPCThreadState.h>
 
-#include <gui/SurfaceTextureClient.h>
+#include <gui/Surface.h>
 
 #include <media/mediaplayer.h>
 #include <media/AudioSystem.h>
@@ -143,7 +143,7 @@ status_t MediaPlayer::setDataSource(
     if (url != NULL) {
         const sp<IMediaPlayerService>& service(getMediaPlayerService());
         if (service != 0) {
-            sp<IMediaPlayer> player(service->create(getpid(), this, mAudioSessionId));
+            sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
             if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
                 (NO_ERROR != player->setDataSource(url, headers))) {
                 player.clear();
@@ -160,7 +160,7 @@ status_t MediaPlayer::setDataSource(int fd, int64_t offset, int64_t length)
     status_t err = UNKNOWN_ERROR;
     const sp<IMediaPlayerService>& service(getMediaPlayerService());
     if (service != 0) {
-        sp<IMediaPlayer> player(service->create(getpid(), this, mAudioSessionId));
+        sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
         if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
             (NO_ERROR != player->setDataSource(fd, offset, length))) {
             player.clear();
@@ -176,7 +176,7 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
     status_t err = UNKNOWN_ERROR;
     const sp<IMediaPlayerService>& service(getMediaPlayerService());
     if (service != 0) {
-        sp<IMediaPlayer> player(service->create(getpid(), this, mAudioSessionId));
+        sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
         if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
             (NO_ERROR != player->setDataSource(source))) {
             player.clear();
@@ -221,12 +221,12 @@ status_t MediaPlayer::getMetadata(bool update_only, bool apply_filter, Parcel *m
 }
 
 status_t MediaPlayer::setVideoSurfaceTexture(
-        const sp<ISurfaceTexture>& surfaceTexture)
+        const sp<IGraphicBufferProducer>& bufferProducer)
 {
     ALOGV("setVideoSurfaceTexture");
     Mutex::Autolock _l(mLock);
     if (mPlayer == 0) return NO_INIT;
-    return mPlayer->setVideoSurfaceTexture(surfaceTexture);
+    return mPlayer->setVideoSurfaceTexture(bufferProducer);
 }
 
 // must call with lock held
@@ -398,6 +398,13 @@ status_t MediaPlayer::getDuration_l(int *msec)
     if (mPlayer != 0 && isValidState) {
         int durationMs;
         status_t ret = mPlayer->getDuration(&durationMs);
+
+        if (ret != OK) {
+            // Do not enter error state just because no duration was available.
+            durationMs = -1;
+            ret = OK;
+        }
+
         if (msec) {
             *msec = durationMs;
         }
@@ -568,8 +575,8 @@ status_t MediaPlayer::setAudioSessionId(int sessionId)
         return BAD_VALUE;
     }
     if (sessionId != mAudioSessionId) {
-        AudioSystem::releaseAudioSessionId(mAudioSessionId);
         AudioSystem::acquireAudioSessionId(sessionId);
+        AudioSystem::releaseAudioSessionId(mAudioSessionId);
         mAudioSessionId = sessionId;
     }
     return NO_ERROR;
@@ -805,6 +812,17 @@ status_t MediaPlayer::setNextMediaPlayer(const sp<MediaPlayer>& next) {
         return NO_INIT;
     }
     return mPlayer->setNextPlayer(next == NULL ? NULL : next->mPlayer);
+}
+
+status_t MediaPlayer::updateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    const sp<IMediaPlayerService>& service = getMediaPlayerService();
+
+    if (service != NULL) {
+        return service->updateProxyConfig(host, port, exclusionList);
+    }
+
+    return INVALID_OPERATION;
 }
 
 #ifdef SAMSUNG_CAMERA_LEGACY

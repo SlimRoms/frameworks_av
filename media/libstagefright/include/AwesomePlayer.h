@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +36,7 @@ struct MediaBuffer;
 struct MediaExtractor;
 struct MediaSource;
 struct NuCachedSource2;
-struct ISurfaceTexture;
+struct IGraphicBufferProducer;
 
 class DrmManagerClinet;
 class DecryptHandle;
@@ -82,7 +81,7 @@ struct AwesomePlayer {
 
     bool isPlaying() const;
 
-    status_t setSurfaceTexture(const sp<ISurfaceTexture> &surfaceTexture);
+    status_t setSurfaceTexture(const sp<IGraphicBufferProducer> &bufferProducer);
     void setAudioSink(const sp<MediaPlayerBase::AudioSink> &audioSink);
     status_t setLooping(bool shouldLoop);
 
@@ -201,9 +200,6 @@ private:
 
     bool mWatchForAudioSeekComplete;
     bool mWatchForAudioEOS;
-#ifdef QCOM_ENHANCED_AUDIO
-    static int mTunnelAliveAP;
-#endif
 
     sp<TimedEventQueue::Event> mVideoEvent;
     bool mVideoEventPending;
@@ -304,16 +300,6 @@ private:
         ASSIGN
     };
     void modifyFlags(unsigned value, FlagMode mode);
-    void logFirstFrame();
-    void logCatchUp(int64_t ts, int64_t clock, int64_t delta);
-    void logLate(int64_t ts, int64_t clock, int64_t delta);
-    void logOnTime(int64_t ts, int64_t clock, int64_t delta);
-    void printStats();
-    int64_t getTimeOfDayUs();
-#ifdef QCOM_HARDWARE
-    void checkTunnelExceptions();
-#endif
-    bool mStatistics;
 
     struct TrackStat {
         String8 mMIME;
@@ -339,21 +325,6 @@ private:
         int32_t mVideoHeight;
         uint32_t mFlags;
         Vector<TrackStat> mTracks;
-
-        int64_t mConsecutiveFramesDropped;
-        uint32_t mCatchupTimeStart;
-        uint32_t mNumTimesSyncLoss;
-        uint32_t mMaxEarlyDelta;
-        uint32_t mMaxLateDelta;
-        uint32_t mMaxTimeSyncLoss;
-        uint64_t mTotalFrames;
-        int64_t mFirstFrameLatencyStartUs; //first frame latency start
-        int64_t mFirstFrameLatencyUs;
-        int64_t mLastFrameUs;
-        bool mVeryFirstFrame;
-        int64_t mTotalTimeUs;
-        int64_t mLastPausedTimeMs;
-        int64_t mLastSeekToTimeMs;
     } mStats;
 
     status_t setVideoScalingMode(int32_t mode);
@@ -368,19 +339,8 @@ private:
 
     size_t countTracks() const;
 
-#ifdef USE_TUNNEL_MODE
-    bool inSupportedTunnelFormats(const char * mime);
-
-    //Flag to check if tunnel mode audio is enabled
-    bool mIsTunnelAudio;
-#endif
-
     AwesomePlayer(const AwesomePlayer &);
     AwesomePlayer &operator=(const AwesomePlayer &);
-
-#ifdef OMAP_ENHANCEMENT
-    const char* mExtractorType;
-#endif
 };
 
 }  // namespace android

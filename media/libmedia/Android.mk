@@ -11,28 +11,21 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-LOCAL_SRC_FILES:= AudioParameter.cpp
-LOCAL_MODULE:= libaudioparameter
-LOCAL_MODULE_TAGS := optional
-LOCAL_SHARED_LIBRARIES := libutils
-
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-endif
-
 LOCAL_SRC_FILES:= \
     AudioTrack.cpp \
+    AudioTrackShared.cpp \
     IAudioFlinger.cpp \
     IAudioFlingerClient.cpp \
     IAudioTrack.cpp \
     IAudioRecord.cpp \
     ICrypto.cpp \
+    IDrm.cpp \
+    IDrmClient.cpp \
     IHDCP.cpp \
     AudioRecord.cpp \
     AudioSystem.cpp \
     mediaplayer.cpp \
+    IMediaLogService.cpp \
     IMediaPlayerService.cpp \
     IMediaPlayerClient.cpp \
     IMediaRecorderClient.cpp \
@@ -62,6 +55,8 @@ LOCAL_SRC_FILES:= \
     SoundPool.cpp \
     SoundPoolThread.cpp
 
+LOCAL_SRC_FILES += ../libnbaio/roundup.c
+
 ifeq ($(BOARD_USES_LIBMEDIA_WITH_AUDIOPARAMETER),true)
 LOCAL_SRC_FILES+= \
     AudioParameter.cpp
@@ -71,20 +66,15 @@ ifeq ($(BOARD_USE_SAMSUNG_SEPARATEDSTREAM),true)
 LOCAL_CFLAGS += -DUSE_SAMSUNG_SEPARATEDSTREAM
 endif
 
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-LOCAL_SRC_FILES += \
-    IDirectTrack.cpp \
-    IDirectTrackClient.cpp
-
-ifeq ($(TARGET_QCOM_AUDIO_VARIANT),caf)
-LOCAL_CFLAGS += -DQCOM_ENHANCED_AUDIO
-endif
-endif
+# for <cutils/atomic-inline.h>
+LOCAL_CFLAGS += -DANDROID_SMP=$(if $(findstring true,$(TARGET_CPU_SMP)),1,0)
+LOCAL_SRC_FILES += SingleStateQueue.cpp
+LOCAL_CFLAGS += -DSINGLE_STATE_QUEUE_INSTANTIATIONS='"SingleStateQueueInstantiations.cpp"'
 
 LOCAL_SHARED_LIBRARIES := \
-	libui libcutils libutils libbinder libsonivox libicuuc libexpat \
+	libui liblog libcutils libutils libbinder libsonivox libicuuc libexpat \
         libcamera_client libstagefright_foundation \
-        libgui libdl libaudioutils libmedia_native
+        libgui libdl libaudioutils
 
 LOCAL_WHOLE_STATIC_LIBRARY := libmedia_helper
 

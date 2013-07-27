@@ -380,38 +380,6 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
         memcpy(mAlbumArt->mData, data, dataSize);
     }
 
-#ifdef OMAP_ENHANCEMENT
-    const char *filemime;
-    CHECK(fileMeta->findCString(kKeyMIMEType, &filemime));
-    ALOGV("file mime type:%s", filemime);
-    VideoFrame *frame = NULL;
-    bool useHWCodec = 0;
-
-    /* For all the formats except Mpeg2TS/Mpeg2PS, we try with Software decoder
-    first. Currently there is no support for seek in Mpeg2TSExtracto or
-    Mpeg2PSExtractor. Incase of Mpeg2TS  if software decoder fails to decode,
-    the extractor is providing the next available frame instead of seeking back
-    to I-frame. So, incase of Mpeg2TS/Mpeg2PS clips we use hardware decoder
-    for thumbnail generation */
-
-    if ((!strcasecmp(filemime, MEDIA_MIMETYPE_CONTAINER_MPEG2TS))
-        || (!strcasecmp(filemime, MEDIA_MIMETYPE_CONTAINER_MPEG2PS))) {
-            useHWCodec = 1;
-    }
-    if (!useHWCodec) {
-        ALOGV("Trying with s/w codec(NonMpeg2TS/PS clip)");
-        frame =  extractVideoFrameWithCodecFlags(
-           &mClient, trackMeta, source, OMXCodec::kPreferSoftwareCodecs,
-           timeUs, option);
-    }
-    if (frame == NULL) {
-       ALOGV("Software decoder failed to extract thumbnail, "
-           "trying hardware decoder.");
-
-       frame = extractVideoFrameWithCodecFlags(&mClient, trackMeta, source, 0,
-                     timeUs, option);
-    }
-#else
     VideoFrame *frame =
         extractVideoFrameWithCodecFlags(
                 &mClient, trackMeta, source, OMXCodec::kPreferSoftwareCodecs,
@@ -424,7 +392,6 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
         frame = extractVideoFrameWithCodecFlags(&mClient, trackMeta, source, 0,
                         timeUs, option);
     }
-#endif
 
     return frame;
 }
@@ -466,7 +433,7 @@ const char *StagefrightMetadataRetriever::extractMetadata(int keyCode) {
         return NULL;
     }
 
-    return strdup(mMetaData.valueAt(index).string());
+    return mMetaData.valueAt(index).string();
 }
 
 void StagefrightMetadataRetriever::parseMetaData() {

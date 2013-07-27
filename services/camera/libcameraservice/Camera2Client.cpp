@@ -22,10 +22,14 @@
 #include <utils/Trace.h>
 
 #include <cutils/properties.h>
-#include <gui/SurfaceTextureClient.h>
 #include <gui/Surface.h>
 #include "camera2/Parameters.h"
 #include "Camera2Client.h"
+#include "Camera2Device.h"
+#include "Camera3Device.h"
+
+#include "camera2/ZslProcessor.h"
+#include "camera2/ZslProcessor3.h"
 
 #define ALOG1(...) ALOGD_IF(gLogLevel >= 1, __VA_ARGS__);
 #define ALOG2(...) ALOGD_IF(gLogLevel >= 2, __VA_ARGS__);
@@ -37,39 +41,42 @@ static int getCallingPid() {
     return IPCThreadState::self()->getCallingPid();
 }
 
-static int getCallingUid() {
-    return IPCThreadState::self()->getCallingUid();
-}
-
 // Interface used by CameraService
 
 Camera2Client::Camera2Client(const sp<CameraService>& cameraService,
         const sp<ICameraClient>& cameraClient,
+        const String16& clientPackageName,
         int cameraId,
         int cameraFacing,
         int clientPid,
-        int servicePid):
-        Client(cameraService, cameraClient,
-                cameraId, cameraFacing, clientPid, servicePid),
-        mSharedCameraClient(cameraClient),
-        mParameters(cameraId, cameraFacing)
+        uid_t clientUid,
+        int servicePid,
+        int deviceVersion):
+        Camera2ClientBase(cameraService, cameraClient, clientPackageName,
+                cameraId, cameraFacing, clientPid, clientUid, servicePid),
+        mParameters(cameraId, cameraFacing),
+        mDeviceVersion(deviceVersion)
 {
     ATRACE_CALL();
     ALOGI("Camera %d: Opened", cameraId);
 
-    mDevice = new Camera2Device(cameraId);
+    switch (mDeviceVersion) {
+        case CAMERA_DEVICE_API_VERSION_2_0:
+            mDevice = new Camera2Device(cameraId);
+            break;
+        case CAMERA_DEVICE_API_VERSION_3_0:
+            mDevice = new Camera3Device(cameraId);
+            break;
+        default:
+            ALOGE("Camera %d: Unknown HAL device version %d",
+                    cameraId, mDeviceVersion);
+            mDevice = NULL;
+            break;
+    }
+
 
     SharedParameters::Lock l(mParameters);
     l.mParameters.state = Parameters::DISCONNECTED;
-}
-
-status_t Camera2Client::checkPid(const char* checkLocation) const {
-    int callingPid = getCallingPid();
-    if (callingPid == mClientPid) return NO_ERROR;
-
-    ALOGE("%s: attempt to use a locked camera from a different process"
-            " (old pid %d, new pid %d)", checkLocation, mClientPid, callingPid);
-    return PERMISSION_DENIED;
 }
 
 status_t Camera2Client::initialize(camera_module_t *module)
@@ -78,14 +85,10 @@ status_t Camera2Client::initialize(camera_module_t *module)
     ALOGV("%s: Initializing client for camera %d", __FUNCTION__, mCameraId);
     status_t res;
 
-    res = mDevice->initialize(module);
+    res = Camera2ClientBase::initialize(module);
     if (res != OK) {
-        ALOGE("%s: Camera %d: unable to initialize device: %s (%d)",
-                __FUNCTION__, mCameraId, strerror(-res), res);
-        return NO_INIT;
+        return res;
     }
-
-    res = mDevice->setNotifyCallback(this);
 
     SharedParameters::Lock l(mParameters);
 
@@ -99,8 +102,11 @@ status_t Camera2Client::initialize(camera_module_t *module)
     String8 threadName;
 
     mStreamingProcessor = new StreamingProcessor(this);
+    threadName = String8::format("C2-%d-StreamProc",
+            mCameraId);
+    mStreamingProcessor->run(threadName.string());
 
-    mFrameProcessor = new FrameProcessor(this);
+    mFrameProcessor = new FrameProcessor(mDevice, this);
     threadName = String8::format("C2-%d-FrameProc",
             mCameraId);
     mFrameProcessor->run(threadName.string());
@@ -115,10 +121,27 @@ status_t Camera2Client::initialize(camera_module_t *module)
             mCameraId);
     mJpegProcessor->run(threadName.string());
 
-    mZslProcessor = new ZslProcessor(this, mCaptureSequencer);
+    switch (mDeviceVersion) {
+        case CAMERA_DEVICE_API_VERSION_2_0: {
+            sp<ZslProcessor> zslProc =
+                    new ZslProcessor(this, mCaptureSequencer);
+            mZslProcessor = zslProc;
+            mZslProcessorThread = zslProc;
+            break;
+        }
+        case CAMERA_DEVICE_API_VERSION_3_0:{
+            sp<ZslProcessor3> zslProc =
+                    new ZslProcessor3(this, mCaptureSequencer);
+            mZslProcessor = zslProc;
+            mZslProcessorThread = zslProc;
+            break;
+        }
+        default:
+            break;
+    }
     threadName = String8::format("C2-%d-ZslProc",
             mCameraId);
-    mZslProcessor->run(threadName.string());
+    mZslProcessorThread->run(threadName.string());
 
     mCallbackProcessor = new CallbackProcessor(this);
     threadName = String8::format("C2-%d-CallbkProc",
@@ -136,6 +159,7 @@ status_t Camera2Client::initialize(camera_module_t *module)
 
 Camera2Client::~Camera2Client() {
     ATRACE_CALL();
+    ALOGV("~Camera2Client");
 
     mDestructionStarted = true;
 
@@ -146,9 +170,10 @@ Camera2Client::~Camera2Client() {
 
 status_t Camera2Client::dump(int fd, const Vector<String16>& args) {
     String8 result;
-    result.appendFormat("Client2[%d] (%p) PID: %d, dump:\n",
+    result.appendFormat("Client2[%d] (%p) Client: %s PID: %d, dump:\n",
             mCameraId,
-            getCameraClient()->asBinder().get(),
+            getRemoteCallback()->asBinder().get(),
+            String8(mClientPackageName).string(),
             mClientPid);
     result.append("  State: ");
 #define CASE_APPEND_ENUM(x) case x: result.append(#x "\n"); break;
@@ -187,37 +212,37 @@ status_t Camera2Client::dump(int fd, const Vector<String16>& args) {
 
     result.append("    White balance mode: ");
     switch (p.wbMode) {
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_AUTO)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_INCANDESCENT)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_FLUORESCENT)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_WARM_FLUORESCENT)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_DAYLIGHT)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_CLOUDY_DAYLIGHT)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_TWILIGHT)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_SHADE)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_AUTO)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_INCANDESCENT)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_FLUORESCENT)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_WARM_FLUORESCENT)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_DAYLIGHT)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_CLOUDY_DAYLIGHT)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_TWILIGHT)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AWB_MODE_SHADE)
         default: result.append("UNKNOWN\n");
     }
 
     result.append("    Effect mode: ");
     switch (p.effectMode) {
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_OFF)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MONO)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_NEGATIVE)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_SOLARIZE)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_SEPIA)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_POSTERIZE)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_WHITEBOARD)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_BLACKBOARD)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_AQUA)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_OFF)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_MONO)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_NEGATIVE)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_SOLARIZE)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_SEPIA)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_POSTERIZE)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_WHITEBOARD)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_BLACKBOARD)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_EFFECT_MODE_AQUA)
         default: result.append("UNKNOWN\n");
     }
 
     result.append("    Antibanding mode: ");
     switch (p.antibandingMode) {
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_AUTO)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_OFF)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_50HZ)
-        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_60HZ)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_MODE_OFF)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_MODE_50HZ)
+        CASE_APPEND_ENUM(ANDROID_CONTROL_AE_ANTIBANDING_MODE_60HZ)
         default: result.append("UNKNOWN\n");
     }
 
@@ -351,26 +376,15 @@ status_t Camera2Client::dump(int fd, const Vector<String16>& args) {
 
     mZslProcessor->dump(fd, args);
 
-    result = "  Device dump:\n";
-    write(fd, result.string(), result.size());
-
-    status_t res = mDevice->dump(fd, args);
-    if (res != OK) {
-        result = String8::format("   Error dumping device: %s (%d)",
-                strerror(-res), res);
-        write(fd, result.string(), result.size());
-    }
-
+    return dumpDevice(fd, args);
 #undef CASE_APPEND_ENUM
-    return NO_ERROR;
 }
 
 // ICamera interface
 
 void Camera2Client::disconnect() {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
-    status_t res;
+    Mutex::Autolock icl(mBinderSerializationLock);
 
     // Allow both client and the media server to disconnect at all times
     int callingPid = getCallingPid();
@@ -379,6 +393,12 @@ void Camera2Client::disconnect() {
     if (mDevice == 0) return;
 
     ALOGV("Camera %d: Shutting down", mCameraId);
+
+    /**
+     * disconnect() cannot call any methods that might need to promote a
+     * wp<Camera2Client>, since disconnect can be called from the destructor, at
+     * which point all such promotions will fail.
+     */
 
     stopPreviewL();
 
@@ -394,18 +414,20 @@ void Camera2Client::disconnect() {
     mCallbackProcessor->deleteStream();
     mZslProcessor->deleteStream();
 
+    mStreamingProcessor->requestExit();
     mFrameProcessor->requestExit();
     mCaptureSequencer->requestExit();
     mJpegProcessor->requestExit();
-    mZslProcessor->requestExit();
+    mZslProcessorThread->requestExit();
     mCallbackProcessor->requestExit();
 
     ALOGV("Camera %d: Waiting for threads", mCameraId);
 
+    mStreamingProcessor->join();
     mFrameProcessor->join();
     mCaptureSequencer->join();
     mJpegProcessor->join();
-    mZslProcessor->join();
+    mZslProcessorThread->join();
     mCallbackProcessor->join();
 
     ALOGV("Camera %d: Disconnecting device", mCameraId);
@@ -420,7 +442,7 @@ void Camera2Client::disconnect() {
 status_t Camera2Client::connect(const sp<ICameraClient>& client) {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
 
     if (mClientPid != 0 && getCallingPid() != mClientPid) {
         ALOGE("%s: Camera %d: Connection attempt from pid %d; "
@@ -431,8 +453,8 @@ status_t Camera2Client::connect(const sp<ICameraClient>& client) {
 
     mClientPid = getCallingPid();
 
-    mCameraClient = client;
-    mSharedCameraClient = client;
+    mRemoteCallback = client;
+    mSharedCameraCallbacks = client;
 
     return OK;
 }
@@ -440,7 +462,7 @@ status_t Camera2Client::connect(const sp<ICameraClient>& client) {
 status_t Camera2Client::lock() {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     ALOGV("%s: Camera %d: Lock call from pid %d; current client pid %d",
             __FUNCTION__, mCameraId, getCallingPid(), mClientPid);
 
@@ -461,7 +483,7 @@ status_t Camera2Client::lock() {
 status_t Camera2Client::unlock() {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     ALOGV("%s: Camera %d: Unlock call from pid %d; current client pid %d",
             __FUNCTION__, mCameraId, getCallingPid(), mClientPid);
 
@@ -473,8 +495,8 @@ status_t Camera2Client::unlock() {
             return INVALID_OPERATION;
         }
         mClientPid = 0;
-        mCameraClient.clear();
-        mSharedCameraClient.clear();
+        mRemoteCallback.clear();
+        mSharedCameraCallbacks.clear();
         return OK;
     }
 
@@ -487,14 +509,14 @@ status_t Camera2Client::setPreviewDisplay(
         const sp<Surface>& surface) {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
     sp<IBinder> binder;
     sp<ANativeWindow> window;
     if (surface != 0) {
-        binder = surface->asBinder();
+        binder = surface->getIGraphicBufferProducer()->asBinder();
         window = surface;
     }
 
@@ -502,18 +524,18 @@ status_t Camera2Client::setPreviewDisplay(
 }
 
 status_t Camera2Client::setPreviewTexture(
-        const sp<ISurfaceTexture>& surfaceTexture) {
+        const sp<IGraphicBufferProducer>& bufferProducer) {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
     sp<IBinder> binder;
     sp<ANativeWindow> window;
-    if (surfaceTexture != 0) {
-        binder = surfaceTexture->asBinder();
-        window = new SurfaceTextureClient(surfaceTexture);
+    if (bufferProducer != 0) {
+        binder = bufferProducer->asBinder();
+        window = new Surface(bufferProducer);
     }
     return setPreviewWindowL(binder, window);
 }
@@ -549,7 +571,12 @@ status_t Camera2Client::setPreviewWindowL(const sp<IBinder>& binder,
             break;
         case Parameters::PREVIEW:
             // Already running preview - need to stop and create a new stream
-            mStreamingProcessor->stopStream();
+            res = stopStream();
+            if (res != OK) {
+                ALOGE("%s: Unable to stop preview to swap windows: %s (%d)",
+                        __FUNCTION__, strerror(-res), res);
+                return res;
+            }
             state = Parameters::WAITING_FOR_PREVIEW_WINDOW;
             break;
     }
@@ -574,8 +601,8 @@ status_t Camera2Client::setPreviewWindowL(const sp<IBinder>& binder,
 void Camera2Client::setPreviewCallbackFlag(int flag) {
     ATRACE_CALL();
     ALOGV("%s: Camera %d: Flag 0x%x", __FUNCTION__, mCameraId, flag);
-    Mutex::Autolock icl(mICameraLock);
-    status_t res;
+    Mutex::Autolock icl(mBinderSerializationLock);
+
     if ( checkPid(__FUNCTION__) != OK) return;
 
     SharedParameters::Lock l(mParameters);
@@ -584,27 +611,36 @@ void Camera2Client::setPreviewCallbackFlag(int flag) {
 
 void Camera2Client::setPreviewCallbackFlagL(Parameters &params, int flag) {
     status_t res = OK;
+
+    switch(params.state) {
+        case Parameters::STOPPED:
+        case Parameters::WAITING_FOR_PREVIEW_WINDOW:
+        case Parameters::PREVIEW:
+        case Parameters::STILL_CAPTURE:
+            // OK
+            break;
+        default:
+            if (flag & CAMERA_FRAME_CALLBACK_FLAG_ENABLE_MASK) {
+                ALOGE("%s: Camera %d: Can't use preview callbacks "
+                        "in state %d", __FUNCTION__, mCameraId, params.state);
+                return;
+            }
+    }
+
     if (flag & CAMERA_FRAME_CALLBACK_FLAG_ONE_SHOT_MASK) {
         ALOGV("%s: setting oneshot", __FUNCTION__);
         params.previewCallbackOneShot = true;
     }
     if (params.previewCallbackFlags != (uint32_t)flag) {
         params.previewCallbackFlags = flag;
-        switch(params.state) {
-        case Parameters::PREVIEW:
+
+        if (params.state == Parameters::PREVIEW) {
             res = startPreviewL(params, true);
-            break;
-        case Parameters::RECORD:
-        case Parameters::VIDEO_SNAPSHOT:
-            res = startRecordingL(params, true);
-            break;
-        default:
-            break;
-        }
-        if (res != OK) {
-            ALOGE("%s: Camera %d: Unable to refresh request in state %s",
-                    __FUNCTION__, mCameraId,
-                    Parameters::getStateName(params.state));
+            if (res != OK) {
+                ALOGE("%s: Camera %d: Unable to refresh request in state %s",
+                        __FUNCTION__, mCameraId,
+                        Parameters::getStateName(params.state));
+            }
         }
     }
 
@@ -613,7 +649,7 @@ void Camera2Client::setPreviewCallbackFlagL(Parameters &params, int flag) {
 status_t Camera2Client::startPreview() {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
     SharedParameters::Lock l(mParameters);
@@ -655,10 +691,46 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
         return res;
     }
 
+    // We could wait to create the JPEG output stream until first actual use
+    // (first takePicture call). However, this would substantially increase the
+    // first capture latency on HAL3 devices, and potentially on some HAL2
+    // devices. So create it unconditionally at preview start. As a drawback,
+    // this increases gralloc memory consumption for applications that don't
+    // ever take a picture.
+    // TODO: Find a better compromise, though this likely would involve HAL
+    // changes.
+    res = updateProcessorStream(mJpegProcessor, params);
+    if (res != OK) {
+        ALOGE("%s: Camera %d: Can't pre-configure still image "
+                "stream: %s (%d)",
+                __FUNCTION__, mCameraId, strerror(-res), res);
+        return res;
+    }
+
     Vector<uint8_t> outputStreams;
     bool callbacksEnabled = params.previewCallbackFlags &
         CAMERA_FRAME_CALLBACK_FLAG_ENABLE_MASK;
     if (callbacksEnabled) {
+        // Can't have recording stream hanging around when enabling callbacks,
+        // since it exceeds the max stream count on some devices.
+        if (mStreamingProcessor->getRecordingStreamId() != NO_STREAM) {
+            ALOGV("%s: Camera %d: Clearing out recording stream before "
+                    "creating callback stream", __FUNCTION__, mCameraId);
+            res = mStreamingProcessor->stopStream();
+            if (res != OK) {
+                ALOGE("%s: Camera %d: Can't stop streaming to delete "
+                        "recording stream", __FUNCTION__, mCameraId);
+                return res;
+            }
+            res = mStreamingProcessor->deleteRecordingStream();
+            if (res != OK) {
+                ALOGE("%s: Camera %d: Unable to delete recording stream before "
+                        "enabling callbacks: %s (%d)", __FUNCTION__, mCameraId,
+                        strerror(-res), res);
+                return res;
+            }
+        }
+
         res = mCallbackProcessor->updateStream(params);
         if (res != OK) {
             ALOGE("%s: Camera %d: Unable to update callback stream: %s (%d)",
@@ -668,7 +740,7 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
         outputStreams.push(getCallbackStreamId());
     }
     if (params.zslMode && !params.recordingHint) {
-        res = mZslProcessor->updateStream(params);
+        res = updateProcessorStream(mZslProcessor, params);
         if (res != OK) {
             ALOGE("%s: Camera %d: Unable to update ZSL stream: %s (%d)",
                     __FUNCTION__, mCameraId, strerror(-res), res);
@@ -692,18 +764,6 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
         res = mStreamingProcessor->startStream(StreamingProcessor::PREVIEW,
                 outputStreams);
     } else {
-        // With recording hint set, we're going to be operating under the
-        // assumption that the user will record video. To optimize recording
-        // startup time, create the necessary output streams for recording and
-        // video snapshot now if they don't already exist.
-        res = mJpegProcessor->updateStream(params);
-        if (res != OK) {
-            ALOGE("%s: Camera %d: Can't pre-configure still image "
-                    "stream: %s (%d)",
-                    __FUNCTION__, mCameraId, strerror(-res), res);
-            return res;
-        }
-
         if (!restart) {
             res = mStreamingProcessor->updateRecordingRequest(params);
             if (res != OK) {
@@ -729,7 +789,7 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
 void Camera2Client::stopPreview() {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return;
     stopPreviewL();
@@ -747,8 +807,7 @@ void Camera2Client::stopPreviewL() {
 
     switch (state) {
         case Parameters::DISCONNECTED:
-            ALOGE("%s: Camera %d: Call before initialized",
-                    __FUNCTION__, mCameraId);
+            // Nothing to do.
             break;
         case Parameters::STOPPED:
         case Parameters::VIDEO_SNAPSHOT:
@@ -757,7 +816,11 @@ void Camera2Client::stopPreviewL() {
             // no break
         case Parameters::RECORD:
         case Parameters::PREVIEW:
-            mStreamingProcessor->stopStream();
+            res = stopStream();
+            if (res != OK) {
+                ALOGE("%s: Camera %d: Can't stop streaming: %s (%d)",
+                        __FUNCTION__, mCameraId, strerror(-res), res);
+            }
             res = mDevice->waitUntilDrained();
             if (res != OK) {
                 ALOGE("%s: Camera %d: Waiting to stop streaming failed: %s (%d)",
@@ -778,7 +841,7 @@ void Camera2Client::stopPreviewL() {
 
 bool Camera2Client::previewEnabled() {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return false;
 
@@ -788,7 +851,7 @@ bool Camera2Client::previewEnabled() {
 
 status_t Camera2Client::storeMetaDataInBuffers(bool enabled) {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
@@ -813,7 +876,7 @@ status_t Camera2Client::storeMetaDataInBuffers(bool enabled) {
 status_t Camera2Client::startRecording() {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
     SharedParameters::Lock l(mParameters);
@@ -864,7 +927,33 @@ status_t Camera2Client::startRecordingL(Parameters &params, bool restart) {
         }
     }
 
-    res = mStreamingProcessor->updateRecordingStream(params);
+    // Not all devices can support a preview callback stream and a recording
+    // stream at the same time, so assume none of them can.
+    if (mCallbackProcessor->getStreamId() != NO_STREAM) {
+        ALOGV("%s: Camera %d: Clearing out callback stream before "
+                "creating recording stream", __FUNCTION__, mCameraId);
+        res = mStreamingProcessor->stopStream();
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Can't stop streaming to delete callback stream",
+                    __FUNCTION__, mCameraId);
+            return res;
+        }
+        res = mCallbackProcessor->deleteStream();
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Unable to delete callback stream before "
+                    "record: %s (%d)", __FUNCTION__, mCameraId,
+                    strerror(-res), res);
+            return res;
+        }
+    }
+    // Disable callbacks if they're enabled; can't record and use callbacks,
+    // and we can't fail record start without stagefright asserting.
+    params.previewCallbackFlags = 0;
+
+    res = updateProcessorStream<
+            StreamingProcessor,
+            &StreamingProcessor::updateRecordingStream>(mStreamingProcessor,
+                                                        params);
     if (res != OK) {
         ALOGE("%s: Camera %d: Unable to update recording stream: %s (%d)",
                 __FUNCTION__, mCameraId, strerror(-res), res);
@@ -872,17 +961,6 @@ status_t Camera2Client::startRecordingL(Parameters &params, bool restart) {
     }
 
     Vector<uint8_t> outputStreams;
-    bool callbacksEnabled = params.previewCallbackFlags &
-        CAMERA_FRAME_CALLBACK_FLAG_ENABLE_MASK;
-    if (callbacksEnabled) {
-        res = mCallbackProcessor->updateStream(params);
-        if (res != OK) {
-            ALOGE("%s: Camera %d: Unable to update callback stream: %s (%d)",
-                    __FUNCTION__, mCameraId, strerror(-res), res);
-            return res;
-        }
-        outputStreams.push(getCallbackStreamId());
-    }
     outputStreams.push(getPreviewStreamId());
     outputStreams.push(getRecordingStreamId());
 
@@ -904,7 +982,7 @@ status_t Camera2Client::startRecordingL(Parameters &params, bool restart) {
 void Camera2Client::stopRecording() {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     SharedParameters::Lock l(mParameters);
 
     status_t res;
@@ -936,7 +1014,7 @@ void Camera2Client::stopRecording() {
 
 bool Camera2Client::recordingEnabled() {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
 
     if ( checkPid(__FUNCTION__) != OK) return false;
 
@@ -953,7 +1031,7 @@ bool Camera2Client::recordingEnabledL() {
 
 void Camera2Client::releaseRecordingFrame(const sp<IMemory>& mem) {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     if ( checkPid(__FUNCTION__) != OK) return;
 
     mStreamingProcessor->releaseRecordingFrame(mem);
@@ -961,7 +1039,7 @@ void Camera2Client::releaseRecordingFrame(const sp<IMemory>& mem) {
 
 status_t Camera2Client::autoFocus() {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     ALOGV("%s: Camera %d", __FUNCTION__, mCameraId);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
@@ -979,8 +1057,12 @@ status_t Camera2Client::autoFocus() {
           * If the camera does not support auto-focus, it is a no-op and
           * onAutoFocus(boolean, Camera) callback will be called immediately
           * with a fake value of success set to true.
+          *
+          * Similarly, if focus mode is set to INFINITY, there's no reason to
+          * bother the HAL.
           */
-        if (l.mParameters.focusMode == Parameters::FOCUS_MODE_FIXED) {
+        if (l.mParameters.focusMode == Parameters::FOCUS_MODE_FIXED ||
+                l.mParameters.focusMode == Parameters::FOCUS_MODE_INFINITY) {
             notifyImmediately = true;
             notifySuccess = true;
         }
@@ -999,9 +1081,9 @@ status_t Camera2Client::autoFocus() {
          * Send immediate notification back to client
          */
         if (notifyImmediately) {
-            SharedCameraClient::Lock l(mSharedCameraClient);
-            if (l.mCameraClient != 0) {
-                l.mCameraClient->notifyCallback(CAMERA_MSG_FOCUS,
+            SharedCameraCallbacks::Lock l(mSharedCameraCallbacks);
+            if (l.mRemoteCallback != 0) {
+                l.mRemoteCallback->notifyCallback(CAMERA_MSG_FOCUS,
                         notifySuccess ? 1 : 0, 0);
             }
             return OK;
@@ -1032,7 +1114,7 @@ status_t Camera2Client::autoFocus() {
 
 status_t Camera2Client::cancelAutoFocus() {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     ALOGV("%s: Camera %d", __FUNCTION__, mCameraId);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
@@ -1040,6 +1122,11 @@ status_t Camera2Client::cancelAutoFocus() {
     int triggerId;
     {
         SharedParameters::Lock l(mParameters);
+        // Canceling does nothing in FIXED or INFINITY modes
+        if (l.mParameters.focusMode == Parameters::FOCUS_MODE_FIXED ||
+                l.mParameters.focusMode == Parameters::FOCUS_MODE_INFINITY) {
+            return OK;
+        }
         triggerId = ++l.mParameters.afTriggerCounter;
 
         // When using triggerAfWithAuto quirk, may need to reset focus mode to
@@ -1062,13 +1149,9 @@ status_t Camera2Client::cancelAutoFocus() {
     return OK;
 }
 
-#ifdef OMAP_ENHANCEMENT_CPCAM
-status_t Camera2Client::takePicture(int msgType, const String8& params) {
-#else
 status_t Camera2Client::takePicture(int msgType) {
-#endif
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
@@ -1104,7 +1187,7 @@ status_t Camera2Client::takePicture(int msgType) {
 
         ALOGV("%s: Camera %d: Starting picture capture", __FUNCTION__, mCameraId);
 
-        res = mJpegProcessor->updateStream(l.mParameters);
+        res = updateProcessorStream(mJpegProcessor, l.mParameters);
         if (res != OK) {
             ALOGE("%s: Camera %d: Can't set up still image stream: %s (%d)",
                     __FUNCTION__, mCameraId, strerror(-res), res);
@@ -1127,7 +1210,7 @@ status_t Camera2Client::takePicture(int msgType) {
 status_t Camera2Client::setParameters(const String8& params) {
     ATRACE_CALL();
     ALOGV("%s: Camera %d", __FUNCTION__, mCameraId);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
@@ -1144,7 +1227,7 @@ status_t Camera2Client::setParameters(const String8& params) {
 String8 Camera2Client::getParameters() const {
     ATRACE_CALL();
     ALOGV("%s: Camera %d", __FUNCTION__, mCameraId);
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     if ( checkPid(__FUNCTION__) != OK) return String8();
 
     SharedParameters::ReadLock l(mParameters);
@@ -1154,7 +1237,7 @@ String8 Camera2Client::getParameters() const {
 
 status_t Camera2Client::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2) {
     ATRACE_CALL();
-    Mutex::Autolock icl(mICameraLock);
+    Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
@@ -1248,7 +1331,7 @@ status_t Camera2Client::commandPlayRecordingSoundL() {
     return OK;
 }
 
-status_t Camera2Client::commandStartFaceDetectionL(int type) {
+status_t Camera2Client::commandStartFaceDetectionL(int /*type*/) {
     ALOGV("%s: Camera %d: Starting face detection",
           __FUNCTION__, mCameraId);
     status_t res;
@@ -1269,10 +1352,10 @@ status_t Camera2Client::commandStartFaceDetectionL(int type) {
     }
     // Ignoring type
     if (l.mParameters.fastInfo.bestFaceDetectMode ==
-            ANDROID_STATS_FACE_DETECTION_OFF) {
+            ANDROID_STATISTICS_FACE_DETECT_MODE_OFF) {
         ALOGE("%s: Camera %d: Face detection not supported",
                 __FUNCTION__, mCameraId);
-        return INVALID_OPERATION;
+        return BAD_VALUE;
     }
     if (l.mParameters.enableFaceDetect) return OK;
 
@@ -1329,16 +1412,6 @@ status_t Camera2Client::commandSetVideoBufferCountL(size_t count) {
 }
 
 /** Device-related methods */
-
-void Camera2Client::notifyError(int errorCode, int arg1, int arg2) {
-    ALOGE("Error condition %d reported by HAL, arguments %d, %d", errorCode, arg1, arg2);
-}
-
-void Camera2Client::notifyShutter(int frameNumber, nsecs_t timestamp) {
-    ALOGV("%s: Shutter notification for frame %d at time %lld", __FUNCTION__,
-            frameNumber, timestamp);
-}
-
 void Camera2Client::notifyAutoFocus(uint8_t newState, int triggerId) {
     ALOGV("%s: Autofocus state now %d, last trigger %d",
             __FUNCTION__, newState, triggerId);
@@ -1434,18 +1507,16 @@ void Camera2Client::notifyAutoFocus(uint8_t newState, int triggerId) {
         }
     }
     if (sendMovingMessage) {
-#ifndef OMAP_ICS_CAMERA
-        SharedCameraClient::Lock l(mSharedCameraClient);
-        if (l.mCameraClient != 0) {
-            l.mCameraClient->notifyCallback(CAMERA_MSG_FOCUS_MOVE,
+        SharedCameraCallbacks::Lock l(mSharedCameraCallbacks);
+        if (l.mRemoteCallback != 0) {
+            l.mRemoteCallback->notifyCallback(CAMERA_MSG_FOCUS_MOVE,
                     afInMotion ? 1 : 0, 0);
         }
-#endif
     }
     if (sendCompletedMessage) {
-        SharedCameraClient::Lock l(mSharedCameraClient);
-        if (l.mCameraClient != 0) {
-            l.mCameraClient->notifyCallback(CAMERA_MSG_FOCUS,
+        SharedCameraCallbacks::Lock l(mSharedCameraCallbacks);
+        if (l.mRemoteCallback != 0) {
+            l.mRemoteCallback->notifyCallback(CAMERA_MSG_FOCUS,
                     success ? 1 : 0, 0);
         }
     }
@@ -1455,23 +1526,6 @@ void Camera2Client::notifyAutoExposure(uint8_t newState, int triggerId) {
     ALOGV("%s: Autoexposure state now %d, last trigger %d",
             __FUNCTION__, newState, triggerId);
     mCaptureSequencer->notifyAutoExposure(newState, triggerId);
-}
-
-void Camera2Client::notifyAutoWhitebalance(uint8_t newState, int triggerId) {
-    ALOGV("%s: Auto-whitebalance state now %d, last trigger %d",
-            __FUNCTION__, newState, triggerId);
-}
-
-int Camera2Client::getCameraId() const {
-    return mCameraId;
-}
-
-const sp<Camera2Device>& Camera2Client::getCameraDevice() {
-    return mDevice;
-}
-
-const sp<CameraService>& Camera2Client::getCameraService() {
-    return mCameraService;
 }
 
 camera2::SharedParameters& Camera2Client::getParameters() {
@@ -1510,32 +1564,6 @@ status_t Camera2Client::removeFrameListener(int32_t minId, int32_t maxId,
 
 status_t Camera2Client::stopStream() {
     return mStreamingProcessor->stopStream();
-}
-
-Camera2Client::SharedCameraClient::Lock::Lock(SharedCameraClient &client):
-        mCameraClient(client.mCameraClient),
-        mSharedClient(client) {
-    mSharedClient.mCameraClientLock.lock();
-}
-
-Camera2Client::SharedCameraClient::Lock::~Lock() {
-    mSharedClient.mCameraClientLock.unlock();
-}
-
-Camera2Client::SharedCameraClient::SharedCameraClient(const sp<ICameraClient>&client):
-        mCameraClient(client) {
-}
-
-Camera2Client::SharedCameraClient& Camera2Client::SharedCameraClient::operator=(
-        const sp<ICameraClient>&client) {
-    Mutex::Autolock l(mCameraClientLock);
-    mCameraClient = client;
-    return *this;
-}
-
-void Camera2Client::SharedCameraClient::clear() {
-    Mutex::Autolock l(mCameraClientLock);
-    mCameraClient.clear();
 }
 
 const int32_t Camera2Client::kPreviewRequestIdStart;
@@ -1636,6 +1664,62 @@ status_t Camera2Client::syncWithDevice() {
         ALOGE("%s: Camera %d: Error while waiting to sync with HAL",
                 __FUNCTION__, mCameraId);
     }
+    return res;
+}
+
+template <typename ProcessorT>
+status_t Camera2Client::updateProcessorStream(sp<ProcessorT> processor,
+                                              camera2::Parameters params) {
+    // No default template arguments until C++11, so we need this overload
+    return updateProcessorStream<ProcessorT, &ProcessorT::updateStream>(
+            processor, params);
+}
+
+template <typename ProcessorT,
+          status_t (ProcessorT::*updateStreamF)(const Parameters &)>
+status_t Camera2Client::updateProcessorStream(sp<ProcessorT> processor,
+                                              Parameters params) {
+    status_t res;
+
+    // Get raw pointer since sp<T> doesn't have operator->*
+    ProcessorT *processorPtr = processor.get();
+    res = (processorPtr->*updateStreamF)(params);
+
+    /**
+     * Can't update the stream if it's busy?
+     *
+     * Then we need to stop the device (by temporarily clearing the request
+     * queue) and then try again. Resume streaming once we're done.
+     */
+    if (res == -EBUSY) {
+        ALOGV("%s: Camera %d: Pausing to update stream", __FUNCTION__,
+                mCameraId);
+        res = mStreamingProcessor->togglePauseStream(/*pause*/true);
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Can't pause streaming: %s (%d)",
+                    __FUNCTION__, mCameraId, strerror(-res), res);
+        }
+
+        res = mDevice->waitUntilDrained();
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Waiting to stop streaming failed: %s (%d)",
+                    __FUNCTION__, mCameraId, strerror(-res), res);
+        }
+
+        res = (processorPtr->*updateStreamF)(params);
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Failed to update processing stream "
+                  " despite having halted streaming first: %s (%d)",
+                  __FUNCTION__, mCameraId, strerror(-res), res);
+        }
+
+        res = mStreamingProcessor->togglePauseStream(/*pause*/false);
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Can't unpause streaming: %s (%d)",
+                    __FUNCTION__, mCameraId, strerror(-res), res);
+        }
+    }
+
     return res;
 }
 

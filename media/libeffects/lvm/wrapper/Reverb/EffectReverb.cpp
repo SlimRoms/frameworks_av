@@ -186,30 +186,6 @@ int  Reverb_getParameter    (ReverbContext *pContext,
 int Reverb_LoadPreset       (ReverbContext   *pContext);
 
 /* Effect Library Interface Implementation */
-extern "C" int EffectQueryNumberEffects(uint32_t *pNumEffects){
-    ALOGV("\n\tEffectQueryNumberEffects start");
-    *pNumEffects = sizeof(gDescriptors) / sizeof(const effect_descriptor_t *);
-    ALOGV("\tEffectQueryNumberEffects creating %d effects", *pNumEffects);
-    ALOGV("\tEffectQueryNumberEffects end\n");
-    return 0;
-}     /* end EffectQueryNumberEffects */
-
-extern "C" int EffectQueryEffect(uint32_t index,
-                                 effect_descriptor_t *pDescriptor){
-    ALOGV("\n\tEffectQueryEffect start");
-    ALOGV("\tEffectQueryEffect processing index %d", index);
-    if (pDescriptor == NULL){
-        ALOGV("\tLVM_ERROR : EffectQueryEffect was passed NULL pointer");
-        return -EINVAL;
-    }
-    if (index >= sizeof(gDescriptors) / sizeof(const effect_descriptor_t *)) {
-        ALOGV("\tLVM_ERROR : EffectQueryEffect index out of range %d", index);
-        return -ENOENT;
-    }
-    *pDescriptor = *gDescriptors[index];
-    ALOGV("\tEffectQueryEffect end\n");
-    return 0;
-}     /* end EffectQueryEffect */
 
 extern "C" int EffectCreate(const effect_uuid_t *uuid,
                             int32_t             sessionId,
@@ -640,10 +616,6 @@ int Reverb_setConfig(ReverbContext *pContext, effect_config_t *pConfig){
               || pConfig->outputCfg.accessMode == EFFECT_BUFFER_ACCESS_ACCUMULATE);
     CHECK_ARG(pConfig->inputCfg.format == AUDIO_FORMAT_PCM_16_BIT);
 
-    if(pConfig->inputCfg.samplingRate != 44100){
-        return -EINVAL;
-    }
-
     //ALOGV("\tReverb_setConfig calling memcpy");
     pContext->config = *pConfig;
 
@@ -672,7 +644,7 @@ int Reverb_setConfig(ReverbContext *pContext, effect_config_t *pConfig){
         return -EINVAL;
     }
 
-    if(pContext->SampleRate != SampleRate){
+    if (pContext->SampleRate != SampleRate) {
 
         LVREV_ControlParams_st    ActiveParams;
         LVREV_ReturnStatus_en     LvmStatus = LVREV_SUCCESS;
@@ -686,11 +658,14 @@ int Reverb_setConfig(ReverbContext *pContext, effect_config_t *pConfig){
         LVM_ERROR_CHECK(LvmStatus, "LVREV_GetControlParameters", "Reverb_setConfig")
         if(LvmStatus != LVREV_SUCCESS) return -EINVAL;
 
+        ActiveParams.SampleRate = SampleRate;
+
         LvmStatus = LVREV_SetControlParameters(pContext->hInstance, &ActiveParams);
 
         LVM_ERROR_CHECK(LvmStatus, "LVREV_SetControlParameters", "Reverb_setConfig")
+        if(LvmStatus != LVREV_SUCCESS) return -EINVAL;
         //ALOGV("\tReverb_setConfig Succesfully called LVREV_SetControlParameters\n");
-
+        pContext->SampleRate = SampleRate;
     }else{
         //ALOGV("\tReverb_setConfig keep sampling rate at %d", SampleRate);
     }
@@ -842,6 +817,7 @@ int Reverb_init(ReverbContext *pContext){
     /* General parameters */
     params.OperatingMode  = LVM_MODE_ON;
     params.SampleRate     = LVM_FS_44100;
+    pContext->SampleRate  = LVM_FS_44100;
 
     if(pContext->config.inputCfg.channels == AUDIO_CHANNEL_OUT_MONO){
         params.SourceFormat   = LVM_MONO;
@@ -2170,13 +2146,13 @@ const struct effect_interface_s gReverbInterface = {
     NULL,
 };    /* end gReverbInterface */
 
+// This is the only symbol that needs to be exported
+__attribute__ ((visibility ("default")))
 audio_effect_library_t AUDIO_EFFECT_LIBRARY_INFO_SYM = {
     tag : AUDIO_EFFECT_LIBRARY_TAG,
     version : EFFECT_LIBRARY_API_VERSION,
     name : "Reverb Library",
     implementor : "NXP Software Ltd.",
-    query_num_effects : android::EffectQueryNumberEffects,
-    query_effect : android::EffectQueryEffect,
     create_effect : android::EffectCreate,
     release_effect : android::EffectRelease,
     get_descriptor : android::EffectGetDescriptor,

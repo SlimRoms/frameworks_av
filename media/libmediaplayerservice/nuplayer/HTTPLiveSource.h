@@ -28,11 +28,13 @@ struct LiveSession;
 
 struct NuPlayer::HTTPLiveSource : public NuPlayer::Source {
     HTTPLiveSource(
+            const sp<AMessage> &notify,
             const char *url,
             const KeyedVector<String8, String8> *headers,
             bool uidValid = false,
             uid_t uid = 0);
 
+    virtual void prepareAsync();
     virtual void start();
 
     virtual status_t feedMoreTSData();
@@ -42,17 +44,21 @@ struct NuPlayer::HTTPLiveSource : public NuPlayer::Source {
     virtual status_t getDuration(int64_t *durationUs);
     virtual status_t seekTo(int64_t seekTimeUs);
 
-    virtual uint32_t flags() const;
-
 protected:
     virtual ~HTTPLiveSource();
 
     virtual sp<MetaData> getFormatMeta(bool audio);
 
+    virtual void onMessageReceived(const sp<AMessage> &msg);
+
 private:
     enum Flags {
         // Don't log any URLs.
         kFlagIncognito = 1,
+    };
+
+    enum {
+        kWhatSessionNotify,
     };
 
     AString mURL;
@@ -65,6 +71,8 @@ private:
     sp<ALooper> mLiveLooper;
     sp<LiveSession> mLiveSession;
     sp<ATSParser> mTSParser;
+
+    void onSessionNotify(const sp<AMessage> &msg);
 
     DISALLOW_EVIL_CONSTRUCTORS(HTTPLiveSource);
 };

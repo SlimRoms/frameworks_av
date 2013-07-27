@@ -27,7 +27,7 @@
 namespace android {
 
 class ICameraClient;
-class ISurfaceTexture;
+class IGraphicBufferProducer;
 class Surface;
 
 class ICamera: public IInterface
@@ -46,12 +46,9 @@ public:
     // allow other processes to use this ICamera interface
     virtual status_t        unlock() = 0;
 
-    // pass the buffered Surface to the camera service
-    virtual status_t        setPreviewDisplay(const sp<Surface>& surface) = 0;
-
-    // pass the buffered ISurfaceTexture to the camera service
+    // pass the buffered IGraphicBufferProducer to the camera service
     virtual status_t        setPreviewTexture(
-            const sp<ISurfaceTexture>& surfaceTexture) = 0;
+            const sp<IGraphicBufferProducer>& bufferProducer) = 0;
 
     // set the preview callback flag to affect how the received frames from
     // preview are handled.
@@ -91,11 +88,7 @@ public:
      * CAMERA_MSG_SHUTTER, CAMERA_MSG_RAW_IMAGE, CAMERA_MSG_COMPRESSED_IMAGE,
      * and CAMERA_MSG_POSTVIEW_FRAME. Any other message types will be ignored.
      */
-#ifdef OMAP_ENHANCEMENT_CPCAM
-    virtual status_t        takePicture(int msgType, const String8& params) = 0;
-#else
     virtual status_t        takePicture(int msgType) = 0;
-#endif
 
     // set preview/capture parameters - key/value pairs
     virtual status_t        setParameters(const String8& params) = 0;

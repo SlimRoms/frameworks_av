@@ -23,7 +23,7 @@
 #include "MediaPuller.h"
 
 #include <cutils/properties.h>
-#include <gui/SurfaceTextureClient.h>
+#include <gui/Surface.h>
 #include <media/ICrypto.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -54,6 +54,8 @@ Converter::Converter(
       ,mFirstSilentFrameUs(-1ll)
       ,mInSilentMode(false)
 #endif
+      ,mPrevVideoBitrate(-1)
+      ,mNumFramesToDrop(0)
     {
     AString mime;
     CHECK(mInputFormat->findString("mime", &mime));
@@ -67,11 +69,45 @@ Converter::Converter(
     mInitCheck = initEncoder();
 
     if (mInitCheck != OK) {
-        if (mEncoder != NULL) {
-            mEncoder->release();
-            mEncoder.clear();
-        }
+        releaseEncoder();
     }
+}
+
+static void ReleaseMediaBufferReference(const sp<ABuffer> &accessUnit) {
+    void *mbuf;
+    if (accessUnit->meta()->findPointer("mediaBuffer", &mbuf)
+            && mbuf != NULL) {
+        ALOGV("releasing mbuf %p", mbuf);
+
+        accessUnit->meta()->setPointer("mediaBuffer", NULL);
+
+        static_cast<MediaBuffer *>(mbuf)->release();
+        mbuf = NULL;
+    }
+}
+
+void Converter::releaseEncoder() {
+    if (mEncoder == NULL) {
+        return;
+    }
+
+    mEncoder->release();
+    mEncoder.clear();
+
+    while (!mInputBufferQueue.empty()) {
+        sp<ABuffer> accessUnit = *mInputBufferQueue.begin();
+        mInputBufferQueue.erase(mInputBufferQueue.begin());
+
+        ReleaseMediaBufferReference(accessUnit);
+    }
+
+    for (size_t i = 0; i < mEncoderInputBuffers.size(); ++i) {
+        sp<ABuffer> accessUnit = mEncoderInputBuffers.itemAt(i);
+        ReleaseMediaBufferReference(accessUnit);
+    }
+
+    mEncoderInputBuffers.clear();
+    mEncoderOutputBuffers.clear();
 }
 
 Converter::~Converter() {
@@ -99,7 +135,9 @@ bool Converter::needToManuallyPrependSPSPPS() const {
     return mNeedToManuallyPrependSPSPPS;
 }
 
-static int32_t getBitrate(const char *propName, int32_t defaultValue) {
+// static
+int32_t Converter::GetInt32Property(
+        const char *propName, int32_t defaultValue) {
     char val[PROPERTY_VALUE_MAX];
     if (property_get(propName, val, NULL)) {
         char *end;
@@ -149,8 +187,9 @@ status_t Converter::initEncoder() {
 
     mOutputFormat->setString("mime", outputMIME.c_str());
 
-    int32_t audioBitrate = getBitrate("media.wfd.audio-bitrate", 128000);
-    int32_t videoBitrate = getBitrate("media.wfd.video-bitrate", 5000000);
+    int32_t audioBitrate = GetInt32Property("media.wfd.audio-bitrate", 128000);
+    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 5000000);
+    mPrevVideoBitrate = videoBitrate;
 
     ALOGI("using audio bitrate of %d bps, video bitrate of %d bps",
           audioBitrate, videoBitrate);
@@ -274,16 +313,7 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
                     sp<ABuffer> accessUnit;
                     CHECK(msg->findBuffer("accessUnit", &accessUnit));
 
-                    void *mbuf;
-                    if (accessUnit->meta()->findPointer("mediaBuffer", &mbuf)
-                            && mbuf != NULL) {
-                        ALOGV("releasing mbuf %p", mbuf);
-
-                        accessUnit->meta()->setPointer("mediaBuffer", NULL);
-
-                        static_cast<MediaBuffer *>(mbuf)->release();
-                        mbuf = NULL;
-                    }
+                    ReleaseMediaBufferReference(accessUnit);
                 }
                 break;
             }
@@ -299,6 +329,13 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
 
                 sp<ABuffer> accessUnit;
                 CHECK(msg->findBuffer("accessUnit", &accessUnit));
+
+                if (mIsVideo && mNumFramesToDrop) {
+                    --mNumFramesToDrop;
+                    ALOGI("dropping frame.");
+                    ReleaseMediaBufferReference(accessUnit);
+                    break;
+                }
 
 #if 0
                 void *mbuf;
@@ -385,16 +422,19 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatShutdown:
         {
-            ALOGI("shutting down encoder");
+            ALOGI("shutting down %s encoder", mIsVideo ? "video" : "audio");
 
-            if (mEncoder != NULL) {
-                mEncoder->release();
-                mEncoder.clear();
-            }
+            releaseEncoder();
 
             AString mime;
             CHECK(mInputFormat->findString("mime", &mime));
             ALOGI("encoder (%s) shut down.", mime.c_str());
+            break;
+        }
+
+        case kWhatDropAFrame:
+        {
+            ++mNumFramesToDrop;
             break;
         }
 
@@ -609,6 +649,13 @@ status_t Converter::doMoreWork() {
                 &bufferIndex, &offset, &size, &timeUs, &flags);
 
         if (err != OK) {
+            if (err == INFO_FORMAT_CHANGED) {
+                continue;
+            } else if (err == INFO_OUTPUT_BUFFERS_CHANGED) {
+                mEncoder->getOutputBuffers(&mEncoderOutputBuffers);
+                continue;
+            }
+
             if (err == -EAGAIN) {
                 err = OK;
             }
@@ -652,6 +699,25 @@ status_t Converter::doMoreWork() {
 
 void Converter::requestIDRFrame() {
     (new AMessage(kWhatRequestIDRFrame, id()))->post();
+}
+
+void Converter::dropAFrame() {
+    (new AMessage(kWhatDropAFrame, id()))->post();
+}
+
+int32_t Converter::getVideoBitrate() const {
+    return mPrevVideoBitrate;
+}
+
+void Converter::setVideoBitrate(int32_t bitRate) {
+    if (mIsVideo && mEncoder != NULL && bitRate != mPrevVideoBitrate) {
+        sp<AMessage> params = new AMessage;
+        params->setInt32("videoBitrate", bitRate);
+
+        mEncoder->setParameters(params);
+
+        mPrevVideoBitrate = bitRate;
+    }
 }
 
 }  // namespace android

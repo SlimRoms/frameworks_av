@@ -32,12 +32,21 @@
 
 namespace android {
 
-NuPlayer::StreamingSource::StreamingSource(const sp<IStreamSource> &source)
-    : mSource(source),
+NuPlayer::StreamingSource::StreamingSource(
+        const sp<AMessage> &notify,
+        const sp<IStreamSource> &source)
+    : Source(notify),
+      mSource(source),
       mFinalResult(OK) {
 }
 
 NuPlayer::StreamingSource::~StreamingSource() {
+}
+
+void NuPlayer::StreamingSource::prepareAsync() {
+    notifyVideoSizeChanged(0, 0);
+    notifyFlagsChanged(0);
+    notifyPrepared();
 }
 
 void NuPlayer::StreamingSource::start() {
@@ -173,8 +182,8 @@ status_t NuPlayer::StreamingSource::dequeueAccessUnit(
     return err;
 }
 
-uint32_t NuPlayer::StreamingSource::flags() const {
-    return 0;
+bool NuPlayer::StreamingSource::isRealTime() const {
+    return mSource->flags() & IStreamSource::kFlagIsRealTimeData;
 }
 
 }  // namespace android

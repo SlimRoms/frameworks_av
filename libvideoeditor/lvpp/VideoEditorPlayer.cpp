@@ -81,10 +81,10 @@ status_t VideoEditorPlayer::setVideoSurface(const sp<Surface> &surface) {
     return OK;
 }
 
-status_t VideoEditorPlayer::setVideoSurfaceTexture(const sp<ISurfaceTexture> &surfaceTexture) {
+status_t VideoEditorPlayer::setVideoSurfaceTexture(const sp<IGraphicBufferProducer> &bufferProducer) {
     ALOGV("setVideoSurfaceTexture");
 
-    mPlayer->setSurfaceTexture(surfaceTexture);
+    mPlayer->setSurfaceTexture(bufferProducer);
     return OK;
 }
 
@@ -406,8 +406,8 @@ status_t VideoEditorPlayer::VeAudioOutput::open(
     }
     ALOGV("open(%u, %d, %d, %d)", sampleRate, channelCount, format, bufferCount);
     if (mTrack) close();
-    int afSampleRate;
-    int afFrameCount;
+    uint32_t afSampleRate;
+    size_t afFrameCount;
     int frameCount;
 
     if (AudioSystem::getOutputFrameCount(&afFrameCount, mStreamType) !=

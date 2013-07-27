@@ -6,7 +6,7 @@
 #include <media/stagefright/foundation/AHandlerReflector.h>
 #include <media/stagefright/MediaSource.h>
 
-#define SUSPEND_VIDEO_IF_IDLE   1
+#define SUSPEND_VIDEO_IF_IDLE   0
 
 namespace android {
 
@@ -27,6 +27,9 @@ struct RepeaterSource : public MediaSource {
     // If RepeaterSource is currently dormant, because SurfaceFlinger didn't
     // send updates in a while, this is its wakeup call.
     void wakeUp();
+
+    double getFrameRate() const;
+    void setFrameRate(double rateHz);
 
 protected:
     virtual ~RepeaterSource();

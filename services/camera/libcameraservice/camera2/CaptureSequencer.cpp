@@ -27,6 +27,7 @@
 #include "../Camera2Device.h"
 #include "../Camera2Client.h"
 #include "Parameters.h"
+#include "ZslProcessorInterface.h"
 
 namespace android {
 namespace camera2 {
@@ -54,7 +55,7 @@ CaptureSequencer::~CaptureSequencer() {
     ALOGV("%s: Exit", __FUNCTION__);
 }
 
-void CaptureSequencer::setZslProcessor(wp<ZslProcessor> processor) {
+void CaptureSequencer::setZslProcessor(wp<ZslProcessorInterface> processor) {
     Mutex::Autolock l(mInputMutex);
     mZslProcessor = processor;
 }
@@ -130,7 +131,7 @@ void CaptureSequencer::onCaptureAvailable(nsecs_t timestamp,
 }
 
 
-void CaptureSequencer::dump(int fd, const Vector<String16>& args) {
+void CaptureSequencer::dump(int fd, const Vector<String16>& /*args*/) {
     String8 result;
     if (mCaptureRequest.entryCount() != 0) {
         result = "    Capture request:\n";
@@ -184,7 +185,6 @@ const CaptureSequencer::StateManager
 };
 
 bool CaptureSequencer::threadLoop() {
-    status_t res;
 
     sp<Camera2Client> client = mClient.promote();
     if (client == 0) return false;
@@ -215,7 +215,8 @@ bool CaptureSequencer::threadLoop() {
     return true;
 }
 
-CaptureSequencer::CaptureState CaptureSequencer::manageIdle(sp<Camera2Client> &client) {
+CaptureSequencer::CaptureState CaptureSequencer::manageIdle(
+        sp<Camera2Client> &/*client*/) {
     status_t res;
     Mutex::Autolock l(mInputMutex);
     while (!mStartCapture) {
@@ -252,6 +253,12 @@ CaptureSequencer::CaptureState CaptureSequencer::manageDone(sp<Camera2Client> &c
                 res = INVALID_OPERATION;
                 break;
             case Parameters::STILL_CAPTURE:
+                res = client->getCameraDevice()->waitUntilDrained();
+                if (res != OK) {
+                    ALOGE("%s: Camera %d: Can't idle after still capture: "
+                            "%s (%d)", __FUNCTION__, client->getCameraId(),
+                            strerror(-res), res);
+                }
                 l.mParameters.state = Parameters::STOPPED;
                 break;
             case Parameters::VIDEO_SNAPSHOT:
@@ -265,16 +272,22 @@ CaptureSequencer::CaptureState CaptureSequencer::manageDone(sp<Camera2Client> &c
                 res = INVALID_OPERATION;
         }
     }
-    sp<ZslProcessor> processor = mZslProcessor.promote();
+    sp<ZslProcessorInterface> processor = mZslProcessor.promote();
     if (processor != 0) {
+        ALOGV("%s: Memory optimization, clearing ZSL queue",
+              __FUNCTION__);
         processor->clearZslQueue();
     }
 
+    /**
+     * Fire the jpegCallback in Camera#takePicture(..., jpegCallback)
+     */
     if (mCaptureBuffer != 0 && res == OK) {
-        Camera2Client::SharedCameraClient::Lock l(client->mSharedCameraClient);
+        Camera2Client::SharedCameraCallbacks::Lock
+            l(client->mSharedCameraCallbacks);
         ALOGV("%s: Sending still image to client", __FUNCTION__);
-        if (l.mCameraClient != 0) {
-            l.mCameraClient->dataCallback(CAMERA_MSG_COMPRESSED_IMAGE,
+        if (l.mRemoteCallback != 0) {
+            l.mRemoteCallback->dataCallback(CAMERA_MSG_COMPRESSED_IMAGE,
                     mCaptureBuffer, NULL);
         } else {
             ALOGV("%s: No client!", __FUNCTION__);
@@ -320,7 +333,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageZslStart(
         sp<Camera2Client> &client) {
     ALOGV("%s", __FUNCTION__);
     status_t res;
-    sp<ZslProcessor> processor = mZslProcessor.promote();
+    sp<ZslProcessorInterface> processor = mZslProcessor.promote();
     if (processor == 0) {
         ALOGE("%s: No ZSL queue to use!", __FUNCTION__);
         return DONE;
@@ -344,7 +357,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageZslStart(
     }
 
     SharedParameters::Lock l(client->getParameters());
-    /* warning: this also locks a SharedCameraClient */
+    /* warning: this also locks a SharedCameraCallbacks */
     shutterNotifyLocked(l.mParameters, client, mMsgType);
     mShutterNotified = true;
     mTimeoutCount = kMaxTimeoutsForCaptureEnd;
@@ -352,13 +365,13 @@ CaptureSequencer::CaptureState CaptureSequencer::manageZslStart(
 }
 
 CaptureSequencer::CaptureState CaptureSequencer::manageZslWaiting(
-        sp<Camera2Client> &client) {
+        sp<Camera2Client> &/*client*/) {
     ALOGV("%s", __FUNCTION__);
     return DONE;
 }
 
 CaptureSequencer::CaptureState CaptureSequencer::manageZslReprocessing(
-        sp<Camera2Client> &client) {
+        sp<Camera2Client> &/*client*/) {
     ALOGV("%s", __FUNCTION__);
     return START;
 }
@@ -366,6 +379,8 @@ CaptureSequencer::CaptureState CaptureSequencer::manageZslReprocessing(
 CaptureSequencer::CaptureState CaptureSequencer::manageStandardStart(
         sp<Camera2Client> &client) {
     ATRACE_CALL();
+
+    // Get the onFrameAvailable callback when the requestID == mCaptureId
     client->registerFrameListener(mCaptureId, mCaptureId + 1,
             this);
     {
@@ -380,7 +395,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardStart(
 }
 
 CaptureSequencer::CaptureState CaptureSequencer::manageStandardPrecaptureWait(
-        sp<Camera2Client> &client) {
+        sp<Camera2Client> &/*client*/) {
     status_t res;
     ATRACE_CALL();
     Mutex::Autolock l(mInputMutex);
@@ -425,6 +440,13 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardCapture(
     SharedParameters::Lock l(client->getParameters());
     Vector<uint8_t> outputStreams;
 
+    /**
+     * Set up output streams in the request
+     *  - preview
+     *  - capture/jpeg
+     *  - callback (if preview callbacks enabled)
+     *  - recording (if recording enabled)
+     */
     outputStreams.push(client->getPreviewStreamId());
     outputStreams.push(client->getCaptureStreamId());
 
@@ -453,6 +475,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardCapture(
         return DONE;
     }
 
+    // Create a capture copy since CameraDeviceBase#capture takes ownership
     CameraMetadata captureCopy = mCaptureRequest;
     if (captureCopy.entryCount() == 0) {
         ALOGE("%s: Camera %d: Unable to copy capture request for HAL device",
@@ -460,7 +483,12 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardCapture(
         return DONE;
     }
 
+    /**
+     * Clear the streaming request for still-capture pictures
+     *   (as opposed to i.e. video snapshots)
+     */
     if (l.mParameters.state == Parameters::STILL_CAPTURE) {
+        // API definition of takePicture() - stop preview before taking pic
         res = client->stopStream();
         if (res != OK) {
             ALOGE("%s: Camera %d: Unable to stop preview for still capture: "
@@ -487,6 +515,8 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardCaptureWait(
     status_t res;
     ATRACE_CALL();
     Mutex::Autolock l(mInputMutex);
+
+    // Wait for new metadata result (mNewFrame)
     while (!mNewFrameReceived) {
         res = mNewFrameSignal.waitRelative(mInputMutex, kWaitDuration);
         if (res == TIMED_OUT) {
@@ -494,12 +524,17 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardCaptureWait(
             break;
         }
     }
+
+    // Approximation of the shutter being closed
+    // - TODO: use the hal3 exposure callback in Camera3Device instead
     if (mNewFrameReceived && !mShutterNotified) {
         SharedParameters::Lock l(client->getParameters());
-        /* warning: this also locks a SharedCameraClient */
+        /* warning: this also locks a SharedCameraCallbacks */
         shutterNotifyLocked(l.mParameters, client, mMsgType);
         mShutterNotified = true;
     }
+
+    // Wait until jpeg was captured by JpegProcessor
     while (mNewFrameReceived && !mNewCaptureReceived) {
         res = mNewCaptureSignal.waitRelative(mInputMutex, kWaitDuration);
         if (res == TIMED_OUT) {
@@ -523,7 +558,9 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStandardCaptureWait(
         }
         if (entry.data.i64[0] != mCaptureTimestamp) {
             ALOGW("Mismatched capture timestamps: Metadata frame %lld,"
-                    " captured buffer %lld", entry.data.i64[0], mCaptureTimestamp);
+                    " captured buffer %lld",
+                    entry.data.i64[0],
+                    mCaptureTimestamp);
         }
         client->removeFrameListener(mCaptureId, mCaptureId + 1, this);
 
@@ -580,7 +617,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageBurstCaptureStart(
 }
 
 CaptureSequencer::CaptureState CaptureSequencer::manageBurstCaptureWait(
-        sp<Camera2Client> &client) {
+        sp<Camera2Client> &/*client*/) {
     status_t res;
     ATRACE_CALL();
 
@@ -651,16 +688,17 @@ status_t CaptureSequencer::updateCaptureRequest(const Parameters &params,
     }
 
     {
-        Camera2Client::SharedCameraClient::Lock l(client->mSharedCameraClient);
+        Camera2Client::SharedCameraCallbacks::Lock
+            l(client->mSharedCameraCallbacks);
 
         ALOGV("%s: Notifying of shutter close to client", __FUNCTION__);
-        if (l.mCameraClient != 0) {
+        if (l.mRemoteCallback != 0) {
             // ShutterCallback
-            l.mCameraClient->notifyCallback(CAMERA_MSG_SHUTTER,
+            l.mRemoteCallback->notifyCallback(CAMERA_MSG_SHUTTER,
                                             /*ext1*/0, /*ext2*/0);
 
             // RawCallback with null buffer
-            l.mCameraClient->notifyCallback(CAMERA_MSG_RAW_IMAGE_NOTIFY,
+            l.mRemoteCallback->notifyCallback(CAMERA_MSG_RAW_IMAGE_NOTIFY,
                                             /*ext1*/0, /*ext2*/0);
         } else {
             ALOGV("%s: No client!", __FUNCTION__);

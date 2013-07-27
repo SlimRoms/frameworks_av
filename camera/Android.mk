@@ -1,22 +1,36 @@
-LOCAL_PATH:= $(call my-dir)
+CAMERA_CLIENT_LOCAL_PATH:= $(call my-dir)
+include $(call all-subdir-makefiles)
 include $(CLEAR_VARS)
+
+LOCAL_PATH := $(CAMERA_CLIENT_LOCAL_PATH)
 
 LOCAL_SRC_FILES:= \
 	Camera.cpp \
+	CameraMetadata.cpp \
 	CameraParameters.cpp \
 	ICamera.cpp \
 	ICameraClient.cpp \
 	ICameraService.cpp \
+	ICameraServiceListener.cpp \
 	ICameraRecordingProxy.cpp \
-	ICameraRecordingProxyListener.cpp
+	ICameraRecordingProxyListener.cpp \
+	IProCameraUser.cpp \
+	IProCameraCallbacks.cpp \
+	ProCamera.cpp \
+	CameraBase.cpp \
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils \
 	libutils \
+	liblog \
 	libbinder \
 	libhardware \
 	libui \
-	libgui
+	libgui \
+	libcamera_metadata \
+
+LOCAL_C_INCLUDES += \
+	system/media/camera/include \
 
 ifeq ($(BOARD_CAMERA_HAVE_ISO),true)
 	LOCAL_CFLAGS += -DHAVE_ISO
@@ -25,26 +39,7 @@ endif
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
 	LOCAL_CFLAGS += -DQCOM_HARDWARE
 endif
-ifeq ($(BOARD_USES_QCOM_LEGACY_CAM_PARAMS),true)
-	LOCAL_CFLAGS += -DQCOM_LEGACY_CAM_PARAMS
-endif
 
 LOCAL_MODULE:= libcamera_client
 
 include $(BUILD_SHARED_LIBRARY)
-
-
-
-
-ifdef OMAP_ENHANCEMENT_CPCAM
-
-include $(CLEAR_VARS)
-
-LOCAL_SRC_FILES += \
-    ShotParameters.cpp
-
-LOCAL_MODULE:= libcpcamcamera_client
-
-include $(BUILD_STATIC_LIBRARY)
-
-endif

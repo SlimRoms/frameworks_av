@@ -489,7 +489,7 @@ Sample::~Sample()
         ::close(mFd);
     }
     mData.clear();
-    delete mUrl;
+    free(mUrl);
 }
 
 status_t Sample::doLoad()
@@ -568,8 +568,8 @@ void SoundChannel::play(const sp<Sample>& sample, int nextChannelID, float leftV
         }
 
         // initialize track
-        int afFrameCount;
-        int afSampleRate;
+        size_t afFrameCount;
+        uint32_t afSampleRate;
         audio_stream_type_t streamType = mSoundPool->streamType();
         if (AudioSystem::getOutputFrameCount(&afFrameCount, streamType) != NO_ERROR) {
             afFrameCount = kDefaultFrameCount;

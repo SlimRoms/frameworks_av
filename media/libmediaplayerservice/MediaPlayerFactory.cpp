@@ -101,7 +101,7 @@ void MediaPlayerFactory::unregisterFactory(player_type type) {
     }                                                   \
                                                         \
     if (0.0 == bestScore) {                             \
-        bestScore = getDefaultPlayerType();             \
+        ret = getDefaultPlayerType();                   \
     }                                                   \
                                                         \
     return ret;
@@ -207,13 +207,18 @@ class NuPlayerFactory : public MediaPlayerFactory::IFactory {
             return 0.0;
 
         if (!strncasecmp("http://", url, 7)
-                || !strncasecmp("https://", url, 8)) {
+                || !strncasecmp("https://", url, 8)
+                || !strncasecmp("file://", url, 7)) {
             size_t len = strlen(url);
             if (len >= 5 && !strcasecmp(".m3u8", &url[len - 5])) {
                 return kOurScore;
             }
 
             if (strstr(url,"m3u8")) {
+                return kOurScore;
+            }
+
+            if ((len >= 4 && !strcasecmp(".sdp", &url[len - 4])) || strstr(url, ".sdp?")) {
                 return kOurScore;
             }
         }

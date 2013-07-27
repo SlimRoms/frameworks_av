@@ -21,43 +21,44 @@
 #include <sys/types.h>
 
 #include <utils/threads.h>
+#include <utils/Log.h>
 
 namespace android {
 
 // ----------------------------------------------------------------------------
 
 // Maximum cumulated timeout milliseconds before restarting audioflinger thread
-#define MAX_STARTUP_TIMEOUT_MS  3000    // Longer timeout period at startup to cope with A2DP init time
+#define MAX_STARTUP_TIMEOUT_MS  3000    // Longer timeout period at startup to cope with A2DP
+                                        // init time
 #define MAX_RUN_TIMEOUT_MS      1000
 #define WAIT_PERIOD_MS          10
-#define RESTORE_TIMEOUT_MS      5000    // Maximum waiting time for a track to be restored
 
-#define CBLK_UNDERRUN_MSK       0x0001
-#define CBLK_UNDERRUN_ON        0x0001  // underrun (out) or overrrun (in) indication
-#define CBLK_UNDERRUN_OFF       0x0000  // no underrun
-#define CBLK_DIRECTION_MSK      0x0002
-#define CBLK_DIRECTION_OUT      0x0002  // this cblk is for an AudioTrack
-#define CBLK_DIRECTION_IN       0x0000  // this cblk is for an AudioRecord
-#define CBLK_FORCEREADY_MSK     0x0004
-#define CBLK_FORCEREADY_ON      0x0004  // track is considered ready immediately by AudioFlinger
-#define CBLK_FORCEREADY_OFF     0x0000  // track is ready when buffer full
-#define CBLK_INVALID_MSK        0x0008
-#define CBLK_INVALID_ON         0x0008  // track buffer is invalidated by AudioFlinger:
-#define CBLK_INVALID_OFF        0x0000  // must be re-created
-#define CBLK_DISABLED_MSK       0x0010
-#define CBLK_DISABLED_ON        0x0010  // track disabled by AudioFlinger due to underrun:
-#define CBLK_DISABLED_OFF       0x0000  // must be re-started
-#define CBLK_RESTORING_MSK      0x0020
-#define CBLK_RESTORING_ON       0x0020  // track is being restored after invalidation
-#define CBLK_RESTORING_OFF      0x0000  // by AudioFlinger
-#define CBLK_RESTORED_MSK       0x0040
-#define CBLK_RESTORED_ON        0x0040  // track has been restored after invalidation
-#define CBLK_RESTORED_OFF       0x0040  // by AudioFlinger
-#define CBLK_FAST               0x0080  // AudioFlinger successfully created a fast track
+#define CBLK_UNDERRUN   0x01 // set: underrun (out) or overrrun (in), clear: no underrun or overrun
+#define CBLK_FORCEREADY 0x02 // set: track is considered ready immediately by AudioFlinger,
+                             // clear: track is ready when buffer full
+#define CBLK_INVALID    0x04 // track buffer invalidated by AudioFlinger, need to re-create
+#define CBLK_DISABLED   0x08 // track disabled by AudioFlinger due to underrun, need to re-start
+
+struct AudioTrackSharedStreaming {
+    // similar to NBAIO MonoPipe
+    volatile int32_t mFront;
+    volatile int32_t mRear;
+};
+
+// future
+struct AudioTrackSharedStatic {
+    int mReserved;
+};
+
+// ----------------------------------------------------------------------------
 
 // Important: do not add any virtual methods, including ~
 struct audio_track_cblk_t
 {
+                friend class Proxy;
+                friend class AudioTrackClientProxy;
+                friend class AudioRecordClientProxy;
+                friend class ServerProxy;
 
     // The data members are grouped so that members accessed frequently and in the same context
     // are in the same line of data cache.
@@ -70,12 +71,14 @@ struct audio_track_cblk_t
                 uint32_t    userBase;
                 uint32_t    serverBase;
 
-                // if there is a shared buffer, "buffers" is the value of pointer() for the shared
-                // buffer, otherwise "buffers" points immediately after the control block
-                void*       buffers;
-                uint32_t    frameCount;
+                int         mPad1;          // unused, but preserves cache line alignment
 
-                // Cache line boundary
+                size_t      frameCount_;    // used during creation to pass actual track buffer size
+                                            // from AudioFlinger to client, and not referenced again
+                                            // FIXME remove here and replace by createTrack() in/out parameter
+                                            // renamed to "_" to detect incorrect use
+
+                // Cache line boundary (32 bytes)
 
                 uint32_t    loopStart;
                 uint32_t    loopEnd;        // read-only for server, read/write for client
@@ -87,20 +90,19 @@ struct audio_track_cblk_t
                 // For AudioTrack only, not used by AudioRecord.
 private:
                 uint32_t    mVolumeLR;
+
+                uint32_t    mSampleRate;    // AudioTrack only: client's requested sample rate in Hz
+                                            // or 0 == default. Write-only client, read-only server.
+
+                uint8_t     mPad2;           // unused
+
 public:
-
-                uint32_t    sampleRate;
-
-                // NOTE: audio_track_cblk_t::frameSize is not equal to AudioTrack::frameSize() for
-                // 8 bit PCM data: in this case,  mCblk->frameSize is based on a sample size of
-                // 16 bit because data is converted to 16 bit before being stored in buffer
-
                 // read-only for client, server writes once at initialization and is then read-only
-                uint8_t     frameSize;       // would normally be size_t, but 8 bits is plenty
                 uint8_t     mName;           // normal tracks: track name, fast tracks: track index
 
                 // used by client only
-                uint16_t    bufferTimeoutMs; // Maximum cumulated timeout before restarting audioflinger
+                uint16_t    bufferTimeoutMs; // Maximum cumulated timeout before restarting
+                                             // audioflinger
 
                 uint16_t    waitTimeMs;      // Cumulated wait time, used by client only
 private:
@@ -111,43 +113,184 @@ public:
 
                 // Cache line boundary (32 bytes)
 
+#if 0
+                union {
+                    AudioTrackSharedStreaming   mStreaming;
+                    AudioTrackSharedStatic      mStatic;
+                    int                         mAlign[8];
+                } u;
+
+                // Cache line boundary (32 bytes)
+#endif
+
                 // Since the control block is always located in shared memory, this constructor
                 // is only used for placement new().  It is never used for regular new() or stack.
                             audio_track_cblk_t();
-                uint32_t    stepUser(uint32_t frameCount);      // called by client only, where
-                // client includes regular AudioTrack and AudioFlinger::PlaybackThread::OutputTrack
-                bool        stepServer(uint32_t frameCount);    // called by server only
-                void*       buffer(uint32_t offset) const;
-                uint32_t    framesAvailable();
-                uint32_t    framesAvailable_l();
-                uint32_t    framesReady();                      // called by server only
+
+private:
+                // if there is a shared buffer, "buffers" is the value of pointer() for the shared
+                // buffer, otherwise "buffers" points immediately after the control block
+                void*       buffer(void *buffers, uint32_t frameSize, size_t offset) const;
+
                 bool        tryLock();
 
-                // No barriers on the following operations, so the ordering of loads/stores
-                // with respect to other parameters is UNPREDICTABLE. That's considered safe.
+                // isOut == true means AudioTrack, isOut == false means AudioRecord
+                bool        stepServer(size_t stepCount, size_t frameCount, bool isOut);
+                uint32_t    stepUser(size_t stepCount, size_t frameCount, bool isOut);
+                uint32_t    framesAvailable(size_t frameCount, bool isOut);
+                uint32_t    framesAvailable_l(size_t frameCount, bool isOut);
+                uint32_t    framesReady(bool isOut);
+};
 
-                // for AudioTrack client only, caller must limit to 0.0 <= sendLevel <= 1.0
-                void        setSendLevel(float sendLevel) {
-                    mSendLevel = uint16_t(sendLevel * 0x1000);
-                }
+// ----------------------------------------------------------------------------
 
-                // for AudioFlinger only; the return value must be validated by the caller
-                uint16_t    getSendLevel_U4_12() const {
-                    return mSendLevel;
-                }
+// Proxy for shared memory control block, to isolate callers from needing to know the details.
+// There is exactly one ClientProxy and one ServerProxy per shared memory control block.
+// The proxies are located in normal memory, and are not multi-thread safe within a given side.
+class Proxy {
+protected:
+    Proxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount, size_t frameSize)
+        : mCblk(cblk), mBuffers(buffers), mFrameCount(frameCount), mFrameSize(frameSize) { }
+    virtual ~Proxy() { }
 
-                // for AudioTrack client only, caller must limit to 0 <= volumeLR <= 0x10001000
-                void        setVolumeLR(uint32_t volumeLR) {
-                    mVolumeLR = volumeLR;
-                }
+public:
+    void*   buffer(size_t offset) const {
+        return mCblk->buffer(mBuffers, mFrameSize, offset);
+    }
 
-                // for AudioFlinger only; the return value must be validated by the caller
-                uint32_t    getVolumeLR() const {
-                    return mVolumeLR;
-                }
+protected:
+    // These refer to shared memory, and are virtual addresses with respect to the current process.
+    // They may have different virtual addresses within the other process.
+    audio_track_cblk_t* const   mCblk;          // the control block
+    void* const                 mBuffers;       // starting address of buffers
+
+    const size_t                mFrameCount;    // not necessarily a power of 2
+    const size_t                mFrameSize;     // in bytes
+#if 0
+    const size_t                mFrameCountP2;  // mFrameCount rounded to power of 2, streaming mode
+#endif
 
 };
 
+// ----------------------------------------------------------------------------
+
+// Proxy seen by AudioTrack client and AudioRecord client
+class ClientProxy : public Proxy {
+protected:
+    ClientProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount, size_t frameSize)
+        : Proxy(cblk, buffers, frameCount, frameSize) { }
+    virtual ~ClientProxy() { }
+};
+
+// ----------------------------------------------------------------------------
+
+// Proxy used by AudioTrack client, which also includes AudioFlinger::PlaybackThread::OutputTrack
+class AudioTrackClientProxy : public ClientProxy {
+public:
+    AudioTrackClientProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount, size_t frameSize)
+        : ClientProxy(cblk, buffers, frameCount, frameSize) { }
+    virtual ~AudioTrackClientProxy() { }
+
+    // No barriers on the following operations, so the ordering of loads/stores
+    // with respect to other parameters is UNPREDICTABLE. That's considered safe.
+
+    // caller must limit to 0.0 <= sendLevel <= 1.0
+    void        setSendLevel(float sendLevel) {
+        mCblk->mSendLevel = uint16_t(sendLevel * 0x1000);
+    }
+
+    // caller must limit to 0 <= volumeLR <= 0x10001000
+    void        setVolumeLR(uint32_t volumeLR) {
+        mCblk->mVolumeLR = volumeLR;
+    }
+
+    void        setSampleRate(uint32_t sampleRate) {
+        mCblk->mSampleRate = sampleRate;
+    }
+
+    // called by:
+    //   PlaybackThread::OutputTrack::write
+    //   AudioTrack::createTrack_l
+    //   AudioTrack::releaseBuffer
+    //   AudioTrack::reload
+    //   AudioTrack::restoreTrack_l (2 places)
+    size_t      stepUser(size_t stepCount) {
+        return mCblk->stepUser(stepCount, mFrameCount, true /*isOut*/);
+    }
+
+    // called by AudioTrack::obtainBuffer and AudioTrack::processBuffer
+    size_t      framesAvailable() {
+        return mCblk->framesAvailable(mFrameCount, true /*isOut*/);
+    }
+
+    // called by AudioTrack::obtainBuffer and PlaybackThread::OutputTrack::obtainBuffer
+    // FIXME remove this API since it assumes a lock that should be invisible to caller
+    size_t      framesAvailable_l() {
+        return mCblk->framesAvailable_l(mFrameCount, true /*isOut*/);
+    }
+
+};
+
+// ----------------------------------------------------------------------------
+
+// Proxy used by AudioRecord client
+class AudioRecordClientProxy : public ClientProxy {
+public:
+    AudioRecordClientProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount, size_t frameSize)
+        : ClientProxy(cblk, buffers, frameCount, frameSize) { }
+    ~AudioRecordClientProxy() { }
+
+    // called by AudioRecord::releaseBuffer
+    size_t      stepUser(size_t stepCount) {
+        return mCblk->stepUser(stepCount, mFrameCount, false /*isOut*/);
+    }
+
+    // called by AudioRecord::processBuffer
+    size_t      framesAvailable() {
+        return mCblk->framesAvailable(mFrameCount, false /*isOut*/);
+    }
+
+    // called by AudioRecord::obtainBuffer
+    size_t      framesReady() {
+        return mCblk->framesReady(false /*isOut*/);
+    }
+
+};
+
+// ----------------------------------------------------------------------------
+
+// Proxy used by AudioFlinger server
+class ServerProxy : public Proxy {
+public:
+    ServerProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount, size_t frameSize, bool isOut)
+        : Proxy(cblk, buffers, frameCount, frameSize), mIsOut(isOut) { }
+    virtual ~ServerProxy() { }
+
+    // for AudioTrack and AudioRecord
+    bool        step(size_t stepCount) { return mCblk->stepServer(stepCount, mFrameCount, mIsOut); }
+
+    // return value of these methods must be validated by the caller
+    uint32_t    getSampleRate() const { return mCblk->mSampleRate; }
+    uint16_t    getSendLevel_U4_12() const { return mCblk->mSendLevel; }
+    uint32_t    getVolumeLR() const { return mCblk->mVolumeLR; }
+
+    // for AudioTrack only
+    size_t      framesReady() {
+        ALOG_ASSERT(mIsOut);
+        return mCblk->framesReady(true);
+    }
+
+    // for AudioRecord only, called by RecordThread::RecordTrack::getNextBuffer
+    // FIXME remove this API since it assumes a lock that should be invisible to caller
+    size_t      framesAvailableIn_l() {
+        ALOG_ASSERT(!mIsOut);
+        return mCblk->framesAvailable_l(mFrameCount, false);
+    }
+
+private:
+    const bool  mIsOut;     // true for AudioTrack, false for AudioRecord
+
+};
 
 // ----------------------------------------------------------------------------
 

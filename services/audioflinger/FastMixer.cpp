@@ -14,8 +14,16 @@
  * limitations under the License.
  */
 
+// <IMPORTANT_WARNING>
+// Design rules for threadLoop() are given in the comments at section "Fast mixer thread" of
+// StateQueue.h.  In particular, avoid library and system calls except at well-known points.
+// The design rules are only for threadLoop(), and don't apply to FastMixerDumpState methods.
+// </IMPORTANT_WARNING>
+
 #define LOG_TAG "FastMixer"
 //#define LOG_NDEBUG 0
+
+#define ATRACE_TAG ATRACE_TAG_AUDIO
 
 #include <sys/atomics.h>
 #include <time.h>
@@ -84,6 +92,7 @@ bool FastMixer::threadLoop()
     struct timespec measuredWarmupTs = {0, 0};  // how long did it take for warmup to complete
     uint32_t warmupCycles = 0;  // counter of number of loop cycles required to warmup
     NBAIO_Sink* teeSink = NULL; // if non-NULL, then duplicate write() to this non-blocking sink
+    NBLog::Writer dummyLogWriter, *logWriter = &dummyLogWriter;
 
     for (;;) {
 
@@ -114,6 +123,10 @@ bool FastMixer::threadLoop()
             // As soon as possible of learning of a new dump area, start using it
             dumpState = next->mDumpState != NULL ? next->mDumpState : &dummyDumpState;
             teeSink = next->mTeeSink;
+            logWriter = next->mNBLogWriter != NULL ? next->mNBLogWriter : &dummyLogWriter;
+            if (mixer != NULL) {
+                mixer->setLog(logWriter);
+            }
 
             // We want to always have a valid reference to the previous (non-idle) state.
             // However, the state queue only guarantees access to current and previous states.
@@ -156,6 +169,10 @@ bool FastMixer::threadLoop()
                 int32_t old = android_atomic_dec(coldFutexAddr);
                 if (old <= 0) {
                     __futex_syscall4(coldFutexAddr, FUTEX_WAIT_PRIVATE, old - 1, NULL);
+                }
+                int policy = sched_getscheduler(0);
+                if (!(policy == SCHED_FIFO || policy == SCHED_RR)) {
+                    ALOGE("did not receive expected priority boost");
                 }
                 // This may be overly conservative; there could be times that the normal mixer
                 // requests such a brief cold idle that it doesn't require resetting this flag.
@@ -301,7 +318,7 @@ bool FastMixer::threadLoop()
                     generations[i] = fastTrack->mGeneration;
                 }
 
-                // finally process modified tracks; these use the same slot
+                // finally process (potentially) modified tracks; these use the same slot
                 // but may have a different buffer provider or volume provider
                 unsigned modifiedTracks = currentTrackMask & previousTrackMask;
                 while (modifiedTracks != 0) {
@@ -309,6 +326,7 @@ bool FastMixer::threadLoop()
                     modifiedTracks &= ~(1 << i);
                     const FastTrack* fastTrack = &current->mFastTracks[i];
                     if (fastTrack->mGeneration != generations[i]) {
+                        // this track was actually modified
                         AudioBufferProvider *bufferProvider = fastTrack->mBufferProvider;
                         ALOG_ASSERT(bufferProvider != NULL);
                         if (mixer != NULL) {
@@ -371,14 +389,14 @@ bool FastMixer::threadLoop()
                 // up to 1 ms.  If enough active tracks all blocked in sequence, this would result
                 // in the overall fast mix cycle being delayed.  Should use a non-blocking FIFO.
                 size_t framesReady = fastTrack->mBufferProvider->framesReady();
-#if defined(ATRACE_TAG) && (ATRACE_TAG != ATRACE_TAG_NEVER)
-                // I wish we had formatted trace names
-                char traceName[16];
-                strcpy(traceName, "framesReady");
-                traceName[11] = i + (i < 10 ? '0' : 'A' - 10);
-                traceName[12] = '\0';
-                ATRACE_INT(traceName, framesReady);
-#endif
+                if (ATRACE_ENABLED()) {
+                    // I wish we had formatted trace names
+                    char traceName[16];
+                    strcpy(traceName, "fRdy");
+                    traceName[4] = i + (i < 10 ? '0' : 'A' - 10);
+                    traceName[5] = '\0';
+                    ATRACE_INT(traceName, framesReady);
+                }
                 FastTrackDump *ftDump = &dumpState->mTracks[i];
                 FastTrackUnderruns underruns = ftDump->mUnderruns;
                 if (framesReady < frameCount) {
@@ -424,16 +442,12 @@ bool FastMixer::threadLoop()
             // FIXME write() is non-blocking and lock-free for a properly implemented NBAIO sink,
             //       but this code should be modified to handle both non-blocking and blocking sinks
             dumpState->mWriteSequence++;
-#if defined(ATRACE_TAG) && (ATRACE_TAG != ATRACE_TAG_NEVER)
-            Tracer::traceBegin(ATRACE_TAG, "write");
-#endif
+            ATRACE_BEGIN("write");
             ssize_t framesWritten = outputSink->write(mixBuffer, frameCount);
-#if defined(ATRACE_TAG) && (ATRACE_TAG != ATRACE_TAG_NEVER)
-            Tracer::traceEnd(ATRACE_TAG);
-#endif
+            ATRACE_END();
             dumpState->mWriteSequence++;
             if (framesWritten >= 0) {
-                ALOG_ASSERT(framesWritten <= frameCount);
+                ALOG_ASSERT((size_t) framesWritten <= frameCount);
                 dumpState->mFramesWritten += framesWritten;
                 //if ((size_t) framesWritten == frameCount) {
                 //    didFullWrite = true;
@@ -451,6 +465,7 @@ bool FastMixer::threadLoop()
         struct timespec newTs;
         int rc = clock_gettime(CLOCK_MONOTONIC, &newTs);
         if (rc == 0) {
+            //logWriter->logTimestamp(newTs);
             if (oldTsValid) {
                 time_t sec = newTs.tv_sec - oldTs.tv_sec;
                 long nsec = newTs.tv_nsec - oldTs.tv_nsec;
@@ -485,9 +500,7 @@ bool FastMixer::threadLoop()
                 sleepNs = -1;
               if (isWarm) {
                 if (sec > 0 || nsec > underrunNs) {
-#if defined(ATRACE_TAG) && (ATRACE_TAG != ATRACE_TAG_NEVER)
-                    ScopedTrace st(ATRACE_TAG, "underrun");
-#endif
+                    ATRACE_NAME("underrun");
                     // FIXME only log occasionally
                     ALOGV("underrun: time since last cycle %d.%03ld sec",
                             (int) sec, nsec / 1000000L);
@@ -567,10 +580,8 @@ bool FastMixer::threadLoop()
                 // this store #4 is not atomic with respect to stores #1, #2, #3 above, but
                 // the newest open and oldest closed halves are atomic with respect to each other
                 dumpState->mBounds = bounds;
-#if defined(ATRACE_TAG) && (ATRACE_TAG != ATRACE_TAG_NEVER)
                 ATRACE_INT("cycle_ms", monotonicNs / 1000000);
                 ATRACE_INT("load_us", loadNs / 1000);
-#endif
               }
 #endif
             } else {

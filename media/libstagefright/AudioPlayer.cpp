@@ -310,13 +310,6 @@ size_t AudioPlayer::AudioSinkCallback(
         void *buffer, size_t size, void *cookie) {
     AudioPlayer *me = (AudioPlayer *)cookie;
 
-#ifdef QCOM_ENHANCED_AUDIO
-    if (buffer == NULL) {
-        //Not applicable for AudioPlayer
-        ALOGE("This indicates the event underrun case for LPA/Tunnel");
-        return 0;
-    }
-#endif
     return me->fillBuffer(buffer, size);
 }
 
@@ -500,11 +493,11 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
     {
         Mutex::Autolock autoLock(mLock);
         mNumFramesPlayed += size_done / mFrameSize;
+        mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
 
         if (mReachedEOS) {
             mPinnedTimeUs = mNumFramesPlayedSysTimeUs;
         } else {
-            mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
             mPinnedTimeUs = -1ll;
         }
     }
@@ -535,21 +528,14 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
     // compensate using system time.
     int64_t diffUs;
     if (mPinnedTimeUs >= 0ll) {
-        if(mReachedEOS)
-            diffUs = ALooper::GetNowUs();
-        else
-            diffUs = mPinnedTimeUs;
-
+        diffUs = mPinnedTimeUs;
     } else {
         diffUs = ALooper::GetNowUs();
     }
 
     diffUs -= mNumFramesPlayedSysTimeUs;
 
-    if(result + diffUs <= mPositionTimeRealUs)
-        return result + diffUs;
-    else
-        return mPositionTimeRealUs;
+    return result + diffUs;
 }
 
 int64_t AudioPlayer::getMediaTimeUs() {

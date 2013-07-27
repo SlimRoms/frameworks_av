@@ -20,20 +20,42 @@
 
 #include "NuPlayer.h"
 
+#include <media/stagefright/foundation/AMessage.h>
+
 namespace android {
 
 struct ABuffer;
+struct MetaData;
 
-struct NuPlayer::Source : public RefBase {
+struct NuPlayer::Source : public AHandler {
     enum Flags {
-        FLAG_SEEKABLE           = 1,
-        FLAG_DYNAMIC_DURATION   = 2,
+        FLAG_CAN_PAUSE          = 1,
+        FLAG_CAN_SEEK_BACKWARD  = 2,  // the "10 sec back button"
+        FLAG_CAN_SEEK_FORWARD   = 4,  // the "10 sec forward button"
+        FLAG_CAN_SEEK           = 8,  // the "seek bar"
+        FLAG_DYNAMIC_DURATION   = 16,
     };
 
-    Source() {}
+    enum {
+        kWhatPrepared,
+        kWhatFlagsChanged,
+        kWhatVideoSizeChanged,
+        kWhatBufferingStart,
+        kWhatBufferingEnd,
+    };
+
+    // The provides message is used to notify the player about various
+    // events.
+    Source(const sp<AMessage> &notify)
+        : mNotify(notify) {
+    }
+
+    virtual void prepareAsync() = 0;
 
     virtual void start() = 0;
     virtual void stop() {}
+    virtual void pause() {}
+    virtual void resume() {}
 
     // Returns OK iff more data was available,
     // an error or ERROR_END_OF_STREAM if not.
@@ -52,14 +74,26 @@ struct NuPlayer::Source : public RefBase {
         return INVALID_OPERATION;
     }
 
-    virtual uint32_t flags() const = 0;
+    virtual bool isRealTime() const {
+        return false;
+    }
 
 protected:
     virtual ~Source() {}
 
+    virtual void onMessageReceived(const sp<AMessage> &msg);
+
     virtual sp<MetaData> getFormatMeta(bool audio) { return NULL; }
 
+    sp<AMessage> dupNotify() const { return mNotify->dup(); }
+
+    void notifyFlagsChanged(uint32_t flags);
+    void notifyVideoSizeChanged(int32_t width, int32_t height);
+    void notifyPrepared(status_t err = OK);
+
 private:
+    sp<AMessage> mNotify;
+
     DISALLOW_EVIL_CONSTRUCTORS(Source);
 };
 

@@ -19,14 +19,13 @@
 #define WIFI_DISPLAY_SOURCE_H_
 
 #include "ANetworkSession.h"
+#include "VideoFormats.h"
 
 #include <media/stagefright/foundation/AHandler.h>
 
 #include <netinet/in.h>
 
 namespace android {
-
-#define USE_1080P       0
 
 struct IHDCP;
 struct IRemoteDisplayClient;
@@ -39,7 +38,8 @@ struct WifiDisplaySource : public AHandler {
 
     WifiDisplaySource(
             const sp<ANetworkSession> &netSession,
-            const sp<IRemoteDisplayClient> &client);
+            const sp<IRemoteDisplayClient> &client,
+            const char *path = NULL);
 
     status_t start(const char *iface);
     status_t stop();
@@ -111,15 +111,28 @@ private:
     static const int64_t kPlaybackSessionTimeoutUs =
         kPlaybackSessionTimeoutSecs * 1000000ll;
 
+    static const AString sUserAgent;
+
     State mState;
+    VideoFormats mSupportedSourceVideoFormats;
     sp<ANetworkSession> mNetSession;
     sp<IRemoteDisplayClient> mClient;
+    AString mMediaPath;
     struct in_addr mInterfaceAddr;
     int32_t mSessionID;
 
     uint32_t mStopReplyID;
 
+    AString mWfdClientRtpPorts;
     int32_t mChosenRTPPort;  // extracted from "wfd_client_rtp_ports"
+
+    bool mSinkSupportsVideo;
+    VideoFormats mSupportedSinkVideoFormats;
+
+    VideoFormats::ResolutionType mChosenVideoResolutionType;
+    size_t mChosenVideoResolutionIndex;
+
+    bool mSinkSupportsAudio;
 
     bool mUsingPCMAudio;
     int32_t mClientSessionID;
@@ -148,6 +161,8 @@ private:
 
     bool mHDCPInitializationComplete;
     bool mSetupTriggerDeferred;
+
+    bool mPlaybackSessionEstablished;
 
     status_t makeHDCP();
     // <<<< HDCP specific section
@@ -244,6 +259,8 @@ private:
     void disconnectClient2();
     void finishStopAfterDisconnectingClient();
     void finishStop2();
+
+    void finishPlay();
 
     DISALLOW_EVIL_CONSTRUCTORS(WifiDisplaySource);
 };

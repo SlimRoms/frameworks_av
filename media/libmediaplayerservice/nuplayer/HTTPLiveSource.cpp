@@ -34,10 +34,12 @@
 namespace android {
 
 NuPlayer::HTTPLiveSource::HTTPLiveSource(
+        const sp<AMessage> &notify,
         const char *url,
         const KeyedVector<String8, String8> *headers,
         bool uidValid, uid_t uid)
-    : mURL(url),
+    : Source(notify),
+      mURL(url),
       mUIDValid(uidValid),
       mUID(uid),
       mFlags(0),
@@ -64,12 +66,15 @@ NuPlayer::HTTPLiveSource::~HTTPLiveSource() {
     }
 }
 
-void NuPlayer::HTTPLiveSource::start() {
+void NuPlayer::HTTPLiveSource::prepareAsync() {
     mLiveLooper = new ALooper;
     mLiveLooper->setName("http live");
     mLiveLooper->start();
 
+    sp<AMessage> notify = new AMessage(kWhatSessionNotify, id());
+
     mLiveSession = new LiveSession(
+            notify,
             (mFlags & kFlagIncognito) ? LiveSession::kFlagIncognito : 0,
             mUIDValid, mUID);
 
@@ -79,6 +84,9 @@ void NuPlayer::HTTPLiveSource::start() {
             mURL.c_str(), mExtraHeaders.isEmpty() ? NULL : &mExtraHeaders);
 
     mTSParser = new ATSParser;
+}
+
+void NuPlayer::HTTPLiveSource::start() {
 }
 
 sp<MetaData> NuPlayer::HTTPLiveSource::getFormatMeta(bool audio) {
@@ -192,17 +200,58 @@ status_t NuPlayer::HTTPLiveSource::seekTo(int64_t seekTimeUs) {
     return OK;
 }
 
-uint32_t NuPlayer::HTTPLiveSource::flags() const {
-    uint32_t flags = 0;
-    if (mLiveSession->isSeekable()) {
-        flags |= FLAG_SEEKABLE;
-    }
+void NuPlayer::HTTPLiveSource::onMessageReceived(const sp<AMessage> &msg) {
+    switch (msg->what()) {
+        case kWhatSessionNotify:
+        {
+            onSessionNotify(msg);
+            break;
+        }
 
-    if (mLiveSession->hasDynamicDuration()) {
-        flags |= FLAG_DYNAMIC_DURATION;
+        default:
+            Source::onMessageReceived(msg);
+            break;
     }
+}
 
-    return flags;
+void NuPlayer::HTTPLiveSource::onSessionNotify(const sp<AMessage> &msg) {
+    int32_t what;
+    CHECK(msg->findInt32("what", &what));
+
+    switch (what) {
+        case LiveSession::kWhatPrepared:
+        {
+            notifyVideoSizeChanged(0, 0);
+
+            uint32_t flags = FLAG_CAN_PAUSE;
+            if (mLiveSession->isSeekable()) {
+                flags |= FLAG_CAN_SEEK;
+                flags |= FLAG_CAN_SEEK_BACKWARD;
+                flags |= FLAG_CAN_SEEK_FORWARD;
+            }
+
+            if (mLiveSession->hasDynamicDuration()) {
+                flags |= FLAG_DYNAMIC_DURATION;
+            }
+
+            notifyFlagsChanged(flags);
+
+            notifyPrepared();
+            break;
+        }
+
+        case LiveSession::kWhatPreparationFailed:
+        {
+            status_t err;
+            CHECK(msg->findInt32("err", &err));
+
+            notifyPrepared(err);
+            break;
+        }
+
+        default:
+            TRESPASS();
+    }
 }
 
 }  // namespace android

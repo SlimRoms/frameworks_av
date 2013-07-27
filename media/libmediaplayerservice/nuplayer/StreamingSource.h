@@ -27,15 +27,18 @@ struct ABuffer;
 struct ATSParser;
 
 struct NuPlayer::StreamingSource : public NuPlayer::Source {
-    StreamingSource(const sp<IStreamSource> &source);
+    StreamingSource(
+            const sp<AMessage> &notify,
+            const sp<IStreamSource> &source);
 
+    virtual void prepareAsync();
     virtual void start();
 
     virtual status_t feedMoreTSData();
 
     virtual status_t dequeueAccessUnit(bool audio, sp<ABuffer> *accessUnit);
 
-    virtual uint32_t flags() const;
+    virtual bool isRealTime() const;
 
 protected:
     virtual ~StreamingSource();

@@ -107,14 +107,7 @@ status_t MPEG2TSSource::read(
         }
 
         status_t err = mExtractor->feedMore();
-#ifdef OMAP_ENHANCEMENT
-        if (err == ERROR_MALFORMED) {
-            ALOGE("[%s] Skiping malformed packet", __func__);
-            continue;
-        } else if (err != OK) {
-#else
         if (err != OK) {
-#endif
             mImpl->signalEOS(err);
         }
     }
@@ -174,22 +167,7 @@ void MPEG2TSExtractor::init() {
     bool haveVideo = false;
     int numPacketsParsed = 0;
 
-#ifdef OMAP_ENHANCEMENT
-    status_t err = OK;
-
-    while (err == OK) {
-        err = feedMore();
-        if (err == ERROR_MALFORMED) {
-            ALOGE("[%s] Detected malformed packet", __func__);
-            err = OK;
-            continue;
-        } else if (err != OK) {
-            ALOGE("[%s] Fatal error");
-            break;
-        }
-#else
     while (feedMore() == OK) {
-#endif
         ATSParser::SourceType type;
         if (haveAudio && haveVideo) {
             break;
@@ -216,11 +194,7 @@ void MPEG2TSExtractor::init() {
             }
         }
 
-#ifdef OMAP_ENHANCEMENT
-        if (++numPacketsParsed > 20000) {
-#else
         if (++numPacketsParsed > 10000) {
-#endif
             break;
         }
     }

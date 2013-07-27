@@ -22,7 +22,9 @@
 #include <utils/Vector.h>
 #include <utils/KeyedVector.h>
 #include <utils/List.h>
-#include "CameraMetadata.h"
+#include <camera/CameraMetadata.h>
+
+#include "ProFrameProcessor.h"
 
 struct camera_frame_metadata;
 
@@ -35,51 +37,45 @@ namespace camera2 {
 /* Output frame metadata processing thread.  This thread waits for new
  * frames from the device, and analyzes them as necessary.
  */
-class FrameProcessor: public Thread {
+class FrameProcessor : public ProFrameProcessor {
   public:
-    FrameProcessor(wp<Camera2Client> client);
+    FrameProcessor(wp<CameraDeviceBase> device, wp<Camera2Client> client);
     ~FrameProcessor();
 
-    struct FilteredListener: virtual public RefBase {
-        virtual void onFrameAvailable(int32_t frameId,
-                const CameraMetadata &frame) = 0;
-    };
-
-    // Register a listener for a range of IDs [minId, maxId). Multiple listeners
-    // can be listening to the same range
-    status_t registerListener(int32_t minId, int32_t maxId, wp<FilteredListener> listener);
-    status_t removeListener(int32_t minId, int32_t maxId, wp<FilteredListener> listener);
-
-    void dump(int fd, const Vector<String16>& args);
   private:
-    static const nsecs_t kWaitDuration = 10000000; // 10 ms
     wp<Camera2Client> mClient;
 
-    virtual bool threadLoop();
+    bool mSynthesize3ANotify;
 
-    Mutex mInputMutex;
+    int mLastFrameNumberOfFaces;
 
-    struct RangeListener {
-        int32_t minId;
-        int32_t maxId;
-        wp<FilteredListener> listener;
-    };
-    List<RangeListener> mRangeListeners;
+    void processNewFrames(const sp<Camera2Client> &client);
 
-    void processNewFrames(sp<Camera2Client> &client);
+    virtual bool processSingleFrame(CameraMetadata &frame,
+                                    const sp<CameraDeviceBase> &device);
 
     status_t processFaceDetect(const CameraMetadata &frame,
-            sp<Camera2Client> &client);
+            const sp<Camera2Client> &client);
 
-    status_t processListeners(const CameraMetadata &frame,
-            sp<Camera2Client> &client);
+    // Send 3A state change notifications to client based on frame metadata
+    status_t process3aState(const CameraMetadata &frame,
+            const sp<Camera2Client> &client);
 
-    CameraMetadata mLastFrame;
-    int mLastFrameNumberOfFaces;
+    struct AlgState {
+        camera_metadata_enum_android_control_ae_state  aeState;
+        camera_metadata_enum_android_control_af_state  afState;
+        camera_metadata_enum_android_control_awb_state awbState;
+
+        AlgState() :
+                aeState(ANDROID_CONTROL_AE_STATE_INACTIVE),
+                afState(ANDROID_CONTROL_AF_STATE_INACTIVE),
+                awbState(ANDROID_CONTROL_AWB_STATE_INACTIVE) {
+        }
+    } m3aState;
 
     // Emit FaceDetection event to java if faces changed
     void callbackFaceDetection(sp<Camera2Client> client,
-                               camera_frame_metadata &metadata);
+                               const camera_frame_metadata &metadata);
 };
 
 

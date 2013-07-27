@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "SchedulingPolicyService"
+#define LOG_TAG "ISchedulingPolicyService"
 //#define LOG_NDEBUG 0
 
 #include <binder/Parcel.h>
@@ -37,16 +37,25 @@ public:
     {
     }
 
-    virtual int requestPriority(int32_t pid, int32_t tid, int32_t prio)
+    virtual int requestPriority(int32_t pid, int32_t tid, int32_t prio, bool asynchronous)
     {
         Parcel data, reply;
         data.writeInterfaceToken(ISchedulingPolicyService::getInterfaceDescriptor());
         data.writeInt32(pid);
         data.writeInt32(tid);
         data.writeInt32(prio);
-        remote()->transact(REQUEST_PRIORITY_TRANSACTION, data, &reply);
-        // fail on exception
-        if (reply.readExceptionCode() != 0) return -1;
+        uint32_t flags = asynchronous ? IBinder::FLAG_ONEWAY : 0;
+        status_t status = remote()->transact(REQUEST_PRIORITY_TRANSACTION, data, &reply, flags);
+        if (status != NO_ERROR) {
+            return status;
+        }
+        if (asynchronous) {
+            return NO_ERROR;
+        }
+        // fail on exception: force binder reconnection
+        if (reply.readExceptionCode() != 0) {
+            return DEAD_OBJECT;
+        }
         return reply.readInt32();
     }
 };

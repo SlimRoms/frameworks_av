@@ -54,6 +54,9 @@ public:
 
     // Convenience methods:
     bool getUInt16(off64_t offset, uint16_t *x);
+    bool getUInt24(off64_t offset, uint32_t *x); // 3 byte int, returned as a 32-bit int
+    bool getUInt32(off64_t offset, uint32_t *x);
+    bool getUInt64(off64_t offset, uint64_t *x);
 
     // May return ERROR_UNSUPPORTED.
     virtual status_t getSize(off64_t *size);

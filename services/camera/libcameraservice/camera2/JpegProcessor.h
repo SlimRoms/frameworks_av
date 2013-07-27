@@ -24,11 +24,12 @@
 #include <utils/Condition.h>
 #include <gui/CpuConsumer.h>
 #include "Parameters.h"
-#include "CameraMetadata.h"
+#include "camera/CameraMetadata.h"
 
 namespace android {
 
 class Camera2Client;
+class CameraDeviceBase;
 class MemoryHeapBase;
 
 namespace camera2 {
@@ -41,9 +42,10 @@ class CaptureSequencer;
 class JpegProcessor:
             public Thread, public CpuConsumer::FrameAvailableListener {
   public:
-    JpegProcessor(wp<Camera2Client> client, wp<CaptureSequencer> sequencer);
+    JpegProcessor(sp<Camera2Client> client, wp<CaptureSequencer> sequencer);
     ~JpegProcessor();
 
+    // CpuConsumer listener implementation
     void onFrameAvailable();
 
     status_t updateStream(const Parameters &params);
@@ -53,8 +55,9 @@ class JpegProcessor:
     void dump(int fd, const Vector<String16>& args) const;
   private:
     static const nsecs_t kWaitDuration = 10000000; // 10 ms
-    wp<Camera2Client> mClient;
+    wp<CameraDeviceBase> mDevice;
     wp<CaptureSequencer> mSequencer;
+    int mId;
 
     mutable Mutex mInputMutex;
     bool mCaptureAvailable;
@@ -71,7 +74,7 @@ class JpegProcessor:
 
     virtual bool threadLoop();
 
-    status_t processNewCapture(sp<Camera2Client> &client);
+    status_t processNewCapture();
     size_t findJpegSize(uint8_t* jpegBuffer, size_t maxSize);
 
 };

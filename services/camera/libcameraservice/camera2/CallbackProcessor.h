@@ -24,12 +24,13 @@
 #include <utils/Condition.h>
 #include <gui/CpuConsumer.h>
 #include "Parameters.h"
-#include "CameraMetadata.h"
+#include "camera/CameraMetadata.h"
 #include "Camera2Heap.h"
 
 namespace android {
 
 class Camera2Client;
+class CameraDeviceBase;
 
 namespace camera2 {
 
@@ -39,7 +40,7 @@ namespace camera2 {
 class CallbackProcessor:
             public Thread, public CpuConsumer::FrameAvailableListener {
   public:
-    CallbackProcessor(wp<Camera2Client> client);
+    CallbackProcessor(sp<Camera2Client> client);
     ~CallbackProcessor();
 
     void onFrameAvailable();
@@ -52,6 +53,8 @@ class CallbackProcessor:
   private:
     static const nsecs_t kWaitDuration = 10000000; // 10 ms
     wp<Camera2Client> mClient;
+    wp<CameraDeviceBase> mDevice;
+    int mId;
 
     mutable Mutex mInputMutex;
     bool mCallbackAvailable;
@@ -72,7 +75,15 @@ class CallbackProcessor:
     virtual bool threadLoop();
 
     status_t processNewCallback(sp<Camera2Client> &client);
+    // Used when shutting down
+    status_t discardNewCallback();
 
+    // Convert from flexible YUV to NV21 or YV12
+    status_t convertFromFlexibleYuv(int32_t previewFormat,
+            uint8_t *dst,
+            const CpuConsumer::LockedBuffer &src,
+            uint32_t dstYStride,
+            uint32_t dstCStride) const;
 };
 
 
