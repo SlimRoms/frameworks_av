@@ -110,6 +110,17 @@ AudioSource::AudioSource(
                     this,
                     frameCount);
         mInitCheck = mRecord->initCheck();
+
+        //configure the auto ramp start duration
+        mAutoRampStartUs = kAutoRampStartUs;
+        uint32_t playbackLatencyMs = 0;
+        if (AudioSystem::getOutputLatency(&playbackLatencyMs,
+                                          AUDIO_STREAM_DEFAULT) == OK) {
+            if (2*playbackLatencyMs*1000LL > kAutoRampStartUs) {
+                mAutoRampStartUs = 2*playbackLatencyMs*1000LL;
+            }
+        }
+        ALOGD("Start autoramp from %lld", mAutoRampStartUs);
     } else {
         mInitCheck = status;
     }
