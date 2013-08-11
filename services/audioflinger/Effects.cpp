@@ -646,7 +646,9 @@ status_t AudioFlinger::EffectModule::setEnabled_l(bool enabled)
     */
     if (effectStateChanged && mIsForLPA) {
         sp<ThreadBase> thread = mThread.promote();
+        unlock();//Acquire locks in certain sequence to avoid deadlock
         thread->effectConfigChanged();
+        lock();
     }
 #endif
     return NO_ERROR;
