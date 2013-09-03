@@ -2322,7 +2322,7 @@ void AwesomePlayer::onVideoEvent() {
             }
         }
 
-        if (latenessUs > 40000) {
+        if (latenessUs > mLateAVSyncMargin) {
             // We're more than 40ms late.
             ALOGV("we're late by %lld us (%.2f secs)",
                  latenessUs, latenessUs / 1E6);
