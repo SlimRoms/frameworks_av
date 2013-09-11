@@ -3835,6 +3835,7 @@ bool AudioFlinger::RecordThread::threadLoop()
                             } else {
                                 readInto = mRsmpInBuffer;
                                 mRsmpInIndex = 0;
+                                InputBytes = mInputBytes;
                             }
                             mBytesRead = mInput->stream->read(mInput->stream, readInto,
                                     InputBytes);
