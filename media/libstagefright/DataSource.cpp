@@ -32,6 +32,7 @@
 #include "include/OggExtractor.h"
 #include "include/WAVExtractor.h"
 #include "include/WVMExtractor.h"
+#include "include/ExtendedExtractor.h"
 
 #include "matroska/MatroskaExtractor.h"
 
@@ -153,22 +154,18 @@ void DataSource::RegisterSniffer_l(SnifferFunc func) {
 
 // static
 void DataSource::RegisterDefaultSniffers() {
-    Mutex::Autolock autoLock(gSnifferMutex);
-    if (gSniffersRegistered) {
-        return;
-    }
-
-    RegisterSniffer_l(SniffMPEG4);
-    RegisterSniffer_l(SniffMatroska);
-    RegisterSniffer_l(SniffOgg);
-    RegisterSniffer_l(SniffWAV);
-    RegisterSniffer_l(SniffFLAC);
-    RegisterSniffer_l(SniffAMR);
-    RegisterSniffer_l(SniffMPEG2TS);
-    RegisterSniffer_l(SniffMP3);
-    RegisterSniffer_l(SniffAAC);
-    RegisterSniffer_l(SniffMPEG2PS);
-    RegisterSniffer_l(SniffWVM);
+    RegisterSniffer(SniffMPEG4);
+    RegisterSniffer(SniffMatroska);
+    RegisterSniffer(SniffOgg);
+    RegisterSniffer(SniffWAV);
+    RegisterSniffer(SniffFLAC);
+    RegisterSniffer(SniffAMR);
+    RegisterSniffer(SniffMPEG2TS);
+    RegisterSniffer(SniffMP3);
+    RegisterSniffer(SniffAAC);
+    RegisterSniffer(SniffMPEG2PS);
+    RegisterSniffer(SniffWVM);
+    RegisterSniffer(ExtendedExtractor::Sniff);
 
     char value[PROPERTY_VALUE_MAX];
     if (property_get("drm.service.enabled", value, NULL)
