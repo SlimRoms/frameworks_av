@@ -42,6 +42,10 @@
 #include "ListenService.h"
 #endif
 
+#ifdef AUDIO_LISTEN_ENABLED
+#include "ListenService.h"
+#endif
+
 using namespace android;
 
 int main(int argc __unused, char** argv)
@@ -136,6 +140,10 @@ int main(int argc __unused, char** argv)
         MediaPlayerService::instantiate();
         ResourceManagerService::instantiate();
         CameraService::instantiate();
+#ifdef AUDIO_LISTEN_ENABLED
+        ALOGI("ListenService instantiated");
+        ListenService::instantiate();
+#endif
         AudioPolicyService::instantiate();
         SoundTriggerHwService::instantiate();
         RadioService::instantiate();
