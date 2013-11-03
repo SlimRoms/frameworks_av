@@ -124,6 +124,10 @@
 #include "ExynosHWCService.h"
 #endif
 
+#ifdef USE_SAMSUNG_COLORFORMAT
+#include <sec_format.h>
+#endif
+
 namespace android {
 
 #ifdef USE_SAMSUNG_COLORFORMAT
@@ -2272,7 +2276,7 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
-#ifdef USE_SAMSUNG_COLORFORMAT
+#ifndef USE_SAMSUNG_COLORFORMAT
     OMX_COLOR_FORMATTYPE eNativeColorFormat = def.format.video.eColorFormat;
     setNativeWindowColorFormat(eNativeColorFormat);
 
@@ -2296,11 +2300,14 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
             frameHeight,
             def.format.video.eColorFormat);
 #else
+    OMX_COLOR_FORMATTYPE eNativeColorFormat = def.format.video.eColorFormat;
+    setNativeWindowColorFormat(eNativeColorFormat);
+
     err = native_window_set_buffers_geometry(
-            mNativeWindow.get(),
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
-            def.format.video.eColorFormat);
+    mNativeWindow.get(),
+    def.format.video.nFrameWidth,
+    def.format.video.nFrameHeight,
+    eNativeColorFormat);
 #endif
 
     if (err != 0) {
@@ -2358,7 +2365,7 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
 #ifdef EXYNOS4_ENHANCEMENTS
     err = native_window_set_usage(
             mNativeWindow.get(), usage | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_EXTERNAL_DISP
-            | GRALLOC_USAGE_HW_FIMC1);
+            | GRALLOC_USAGE_HW_FIMC1 | GRALLOC_USAGE_HWC_HWOVERLAY);
 #else
     err = native_window_set_usage(
             mNativeWindow.get(), usage | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_EXTERNAL_DISP);
