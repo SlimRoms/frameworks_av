@@ -29,7 +29,9 @@
 #include <stdlib.h>
 
 namespace android {
-
+// Treat time out as an error if we have not received any output
+// buffers after 1 seconds
+const static int64_t WaitLockEventTimeOutNs = 1000000000LL;
 static void AudioRecordCallbackFunction(int event, void *user, void *info) {
     AudioSource *source = (AudioSource *) user;
     switch (event) {
@@ -81,6 +83,17 @@ AudioSource::AudioSource(
                     this,
                     frameCount);
         mInitCheck = mRecord->initCheck();
+
+        //configure the auto ramp start duration
+        mAutoRampStartUs = kAutoRampStartUs;
+        uint32_t playbackLatencyMs = 0;
+        if (AudioSystem::getOutputLatency(&playbackLatencyMs,
+                                          AUDIO_STREAM_DEFAULT) == OK) {
+            if (2*playbackLatencyMs*1000LL > kAutoRampStartUs) {
+                mAutoRampStartUs = 2*playbackLatencyMs*1000LL;
+            }
+        }
+        ALOGD("Start autoramp from %lld", mAutoRampStartUs);
     } else {
         mInitCheck = status;
     }
@@ -217,7 +230,9 @@ status_t AudioSource::read(
     }
 
     while (mStarted && mBuffersReceived.empty()) {
-        mFrameAvailableCondition.wait(mLock);
+       status_t err = mFrameAvailableCondition.waitRelative(mLock,WaitLockEventTimeOutNs);
+       if(err == -ETIMEDOUT)
+           return (status_t)err;
     }
     if (!mStarted) {
         return OK;
@@ -232,14 +247,14 @@ status_t AudioSource::read(
     int64_t timeUs;
     CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
     int64_t elapsedTimeUs = timeUs - mStartTimeUs;
-    if (elapsedTimeUs < kAutoRampStartUs) {
+    if (elapsedTimeUs < mAutoRampStartUs) {
         memset((uint8_t *) buffer->data(), 0, buffer->range_length());
-    } else if (elapsedTimeUs < kAutoRampStartUs + kAutoRampDurationUs) {
+    } else if (elapsedTimeUs < mAutoRampStartUs + kAutoRampDurationUs) {
         int32_t autoRampDurationFrames =
                     (kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL;
 
         int32_t autoRampStartFrames =
-                    (kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
+                    (mAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
 
         int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
         rampVolume(nFrames, autoRampDurationFrames,
