@@ -61,6 +61,9 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
 #include <media/stagefright/Utils.h>
+#ifdef QCOM_HARDWARE
+#include "include/ExtendedUtils.h"
+#endif
 
 #include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
@@ -253,6 +256,10 @@ AwesomePlayer::AwesomePlayer()
     reset();
 #ifdef QCOM_DIRECTTRACK
     mIsTunnelAudio = false;
+#endif
+
+#ifdef QCOM_HARDWARE
+    mLateAVSyncMargin = ExtendedUtils::ShellProp::getMaxAVSyncLateMargin();
 #endif
 }
 
@@ -531,7 +538,11 @@ status_t AwesomePlayer::setDataSource_l(const sp<MediaExtractor> &extractor) {
                     &mStats.mTracks.editItemAt(mStats.mVideoTrackIndex);
                 stat->mMIME = mime.string();
             }
-        } else if (!haveAudio && !strncasecmp(mime.string(), "audio/", 6)) {
+        } else if (!haveAudio &&
+#ifdef QCOM_HARDWARE
+                !ExtendedUtils::ShellProp::isAudioDisabled(false) &&
+#endif
+                !strncasecmp(mime.string(), "audio/", 6)) {
             setAudioSource(extractor->getTrack(i));
             haveAudio = true;
             mActiveAudioTrackIndex = i;
