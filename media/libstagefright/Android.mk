@@ -56,6 +56,7 @@ LOCAL_SRC_FILES:=                         \
         Utils.cpp                         \
         VBRISeeker.cpp                    \
         WAVExtractor.cpp                  \
+        WAVEWriter.cpp                    \
         WVMExtractor.cpp                  \
         XINGSeeker.cpp                    \
         avc_utils.cpp                     \
@@ -70,14 +71,6 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/flac/include \
         $(TOP)/external/tremolo \
         $(TOP)/external/openssl/include \
-
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-    LOCAL_SRC_FILES += \
-        ExtendedCodec.cpp \
-        ExtendedExtractor.cpp \
-        ExtendedUtils.cpp \
-        WAVEWriter.cpp
-endif
 
 ifneq ($(filter caf bfam,$(TARGET_QCOM_AUDIO_VARIANT)),)
     ifeq ($(BOARD_USES_ALSA_AUDIO),true)
@@ -146,10 +139,16 @@ LOCAL_STATIC_LIBRARIES := \
         libFLAC \
         libmedia_helper
 
+
+LOCAL_SRC_FILES += ExtendedUtils.cpp
+
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
        LOCAL_CFLAGS     += -DENABLE_AV_ENHANCEMENTS
-       LOCAL_SRC_FILES  += ExtendedMediaDefs.cpp
-       LOCAL_SRC_FILES  += ExtendedWriter.cpp
+       LOCAL_SRC_FILES  += ExtendedCodec.cpp \
+                           ExtendedExtractor.cpp \
+						   ExtendedMediaDefs.cpp \
+                           ExtendedWriter.cpp
+
        ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
            LOCAL_C_INCLUDES += \
                $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
