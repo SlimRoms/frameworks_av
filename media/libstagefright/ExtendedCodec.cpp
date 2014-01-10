@@ -1023,6 +1023,14 @@ bool ExtendedCodec::useHWAACDecoder(const char *mime) {
     return false;
 }
 
+bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
+    /* pause is required for hardware component to release adsp resources */
+    if (!strncmp(componentName, "OMX.qcom.", 9)) {
+        return true;
+    }
+    return false;
+}
+
 } //namespace android
 
 #else //ENABLE_AV_ENHANCEMENTS
@@ -1282,6 +1290,9 @@ namespace android {
         return;
     }
 
+    bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
+        return false;
+    }
 } //namespace android
 
 #endif //ENABLE_AV_ENHANCEMENTS
