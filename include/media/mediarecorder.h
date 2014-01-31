@@ -131,6 +131,9 @@ enum media_recorder_states {
 
     // Recording is in progress.
     MEDIA_RECORDER_RECORDING             = 1 << 4,
+
+    // Recording is paused.
+    MEDIA_RECORDER_PAUSED                = 1 << 5,
 };
 
 // The "msg" code passed to the listener in notify.
@@ -243,6 +246,7 @@ public:
     status_t    getMaxAmplitude(int* max);
     virtual status_t    start();
     virtual status_t    stop();
+    virtual status_t    pause();
     status_t    reset();
     status_t    init();
     status_t    close();
