@@ -362,7 +362,7 @@ status_t AudioSource::read(
                     ((int64_t)kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
 
         int32_t autoRampStartFrames =
-                        (mAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
+                        ((int64_t)kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
 
         int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
         rampVolume(nFrames, autoRampDurationFrames,

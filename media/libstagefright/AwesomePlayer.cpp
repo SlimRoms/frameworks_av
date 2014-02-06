@@ -88,6 +88,7 @@ static const size_t kHighWaterMarkBytes = 200000;
 #ifdef QCOM_DIRECTTRACK
 int AwesomePlayer::mTunnelAliveAP = 0;
 #endif
+static int64_t kVideoEarlyMarginUs = -10000LL;
 
 // maximum time in paused state when offloading audio decompression. When elapsed, the AudioPlayer
 // is destroyed to allow the audio DSP to power down.
@@ -2348,10 +2349,7 @@ void AwesomePlayer::onVideoEvent() {
                     if(!(mFlags & AT_EOS)) logLate(timeUs,nowUs,latenessUs);
                 }
 
-                int64_t eventDurationUs = mSystemTimeSource.getRealTimeUs() - eventStartTimeUs;
-                int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
-                delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
-                postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+                postVideoEvent_l(0);
                 return;
             }
         }
@@ -2363,7 +2361,8 @@ void AwesomePlayer::onVideoEvent() {
                 Mutex::Autolock autoLock(mStatsLock);
                 mStats.mConsecutiveFramesDropped = 0;
             }
-            postVideoEvent_l(10000);
+            postVideoEvent_l((kVideoEarlyMarginUs - latenessUs) > 40000LL ?
+                                40000LL : (kVideoEarlyMarginUs - latenessUs));
             return;
         }
     }
@@ -2416,10 +2415,43 @@ void AwesomePlayer::onVideoEvent() {
         modifyFlags(SEEK_PREVIEW, CLEAR);
         return;
     }
-    int64_t eventDurationUs = mSystemTimeSource.getRealTimeUs() - eventStartTimeUs;
-    int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
-    delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
-    postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+
+    /* get next frame time */
+    if (wasSeeking == NO_SEEK) {
+        MediaSource::ReadOptions options;
+        for (;;) {
+            status_t err = mVideoSource->read(&mVideoBuffer, &options);
+            if (err != OK) {
+                // deal with any errors next time
+                CHECK(mVideoBuffer == NULL);
+                postVideoEvent_l(0);
+                return;
+            }
+
+            if (mVideoBuffer->range_length() != 0) {
+                break;
+            }
+
+            // Some decoders, notably the PV AVC software decoder
+            // return spurious empty buffers that we just want to ignore.
+
+            mVideoBuffer->release();
+            mVideoBuffer = NULL;
+        }
+
+        {
+            Mutex::Autolock autoLock(mStatsLock);
+            ++mStats.mNumVideoFramesDecoded;
+        }
+
+        int64_t nextTimeUs;
+        CHECK(mVideoBuffer->meta_data()->findInt64(kKeyTime, &nextTimeUs));
+        int64_t delayUs = nextTimeUs - ts->getRealTimeUs() + mTimeSourceDeltaUs;
+        postVideoEvent_l(delayUs > 10000 ? 10000 : delayUs < 0 ? 0 : delayUs);
+        return;
+    }
+
+    postVideoEvent_l();
 }
 
 void AwesomePlayer::postVideoEvent_l(int64_t delayUs) {
