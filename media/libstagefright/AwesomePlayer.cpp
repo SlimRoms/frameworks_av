@@ -1574,6 +1574,9 @@ void AwesomePlayer::shutdownVideoDecoder_l() {
 status_t AwesomePlayer::setNativeWindow_l(const sp<ANativeWindow> &native) {
     mNativeWindow = native;
 
+    mQueue.cancelEvent(mCheckAudioStatusEvent->eventID());
+    mAudioStatusEventPending = false;
+
     if (mVideoSource == NULL) {
         return OK;
     }
@@ -1595,6 +1598,7 @@ status_t AwesomePlayer::setNativeWindow_l(const sp<ANativeWindow> &native) {
     }
 
     if (mLastVideoTimeUs >= 0) {
+        mWatchForAudioSeekComplete = false;
         mSeeking = SEEK;
         mSeekTimeUs = mLastVideoTimeUs;
         modifyFlags((AT_EOS | AUDIO_AT_EOS | VIDEO_AT_EOS), CLEAR);
