@@ -49,6 +49,10 @@
 #include <memory>
 #include <utility>
 
+#ifndef MAX_CAMERAS
+#define MAX_CAMERAS 2
+#endif
+
 namespace android {
 
 extern volatile int32_t gLogLevel;
