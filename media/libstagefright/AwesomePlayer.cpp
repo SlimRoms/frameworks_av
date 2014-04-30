@@ -804,7 +804,7 @@ void AwesomePlayer::ensureCacheIsFetching_l() {
 
 void AwesomePlayer::onVideoLagUpdate() {
     Mutex::Autolock autoLock(mLock);
-    if (!mVideoLagEventPending) {
+    if (!mVideoLagEventPending || mAudioPlayer == NULL) {
         return;
     }
     mVideoLagEventPending = false;
