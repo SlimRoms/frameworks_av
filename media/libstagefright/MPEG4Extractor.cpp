@@ -1014,6 +1014,12 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     mLastTrack->meta->setInt32(kKeyEncoderDelay, delay);
 
                     int64_t paddingus = duration - (segment_duration + media_time);
+                    if (paddingus < 0) {
+                        // track duration from media header (which is what kKeyDuration is) might
+                        // be slightly shorter than the segment duration, which would make the
+                        // padding negative. Clamp to zero.
+                        paddingus = 0;
+                    }
                     int64_t paddingsamples = (paddingus * samplerate + 500000) / 1000000;
                     mLastTrack->meta->setInt32(kKeyEncoderPadding, paddingsamples);
                 }
@@ -2332,10 +2338,6 @@ status_t MPEG4Extractor::verifyTrack(Track *track) {
 status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
         const void *esds_data, size_t esds_size) {
     ESDS esds(esds_data, esds_size);
-    static uint32_t kSamplingRate[] = {
-        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
-        16000, 12000, 11025, 8000, 7350
-    };
 
     uint8_t objectTypeIndication;
     if (esds.getObjectTypeIndication(&objectTypeIndication) != OK) {
@@ -2396,6 +2398,11 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
         return ERROR_MALFORMED;
     }
 
+    static uint32_t kSamplingRate[] = {
+        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
+        16000, 12000, 11025, 8000, 7350
+    };
+
     ABitReader br(csd, csd_size);
     uint32_t objectType = br.getBits(5);
 
@@ -2408,6 +2415,10 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
     }
 
     mLastTrack->meta->setInt32(kKeyAACProfile, objectType);
+
+    //keep AOT type
+    mLastTrack->meta->setInt32(kKeyAACAOT, objectType);
+
     uint32_t freqIndex = br.getBits(4);
 
     int32_t sampleRate = 0;
@@ -2431,17 +2442,25 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
         // SBR specific config per 14496-3 table 1.13
         freqIndex = br.getBits(4);
 
-        if (freqIndex == 13 || freqIndex == 14) {
-            return ERROR_MALFORMED;
-        }
-        if (freqIndex == 15) {
+        sampleRate = kSamplingRate[freqIndex];
+    }
+
+    if (objectType == 5 || objectType == 29) { // SBR specific config per 14496-3 table 1.13
+        uint32_t extFreqIndex = br.getBits(4);
+        int32_t extSampleRate;
+        if (extFreqIndex == 15) {
             if (csd_size < 8) {
                 return ERROR_MALFORMED;
             }
             extSampleRate = br.getBits(24);
+        } else {
+            if (extFreqIndex == 13 || extFreqIndex == 14) {
+                return ERROR_MALFORMED;
+            }
+            extSampleRate = kSamplingRate[extFreqIndex];
         }
-        extSampleRate = kSamplingRate[freqIndex];
-        mLastTrack->meta->setInt32(kKeyExtSampleRate, extSampleRate);
+        //TODO: save the extension sampling rate value in meta data =>
+        // mLastTrack->meta->setInt32(kKeyExtSampleRate, extSampleRate);
     }
 
     if (numChannels == 0) {
