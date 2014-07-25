@@ -117,6 +117,8 @@ struct ExtendedUtils {
         static int64_t getMaxAVSyncLateMargin();
     };
 
+    static bool mIsQCHWAACEncoder;
+
     //set B frames for MPEG4
     static void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE &mpeg4type, int32_t &numBFrames,
             const char* componentName);
@@ -125,8 +127,8 @@ struct ExtendedUtils {
     static void setBFrames(OMX_VIDEO_PARAM_AVCTYPE &h264type, int32_t &numBFrames,
             int32_t iFramesInterval, int32_t frameRate, const char* componentName);
 
-    static bool UseQCHWAACEncoder(audio_encoder Encoder, int32_t Channel,
-            int32_t BitRate, int32_t SampleRate);
+    static bool UseQCHWAACEncoder(audio_encoder Encoder = AUDIO_ENCODER_DEFAULT, int32_t Channel = 0,
+            int32_t BitRate = 0, int32_t SampleRate = 0);
 
     static sp<MediaExtractor> MediaExtractor_CreateIfNeeded(
             sp<MediaExtractor> defaultExt, const sp<DataSource> &source,
