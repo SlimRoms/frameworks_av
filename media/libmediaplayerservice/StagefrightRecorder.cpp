@@ -89,6 +89,8 @@ StagefrightRecorder::StagefrightRecorder()
 
     ALOGV("Constructor");
     reset();
+
+    mRecorderExtendedStats = new RecorderExtendedStats("StagefrightRecorder", gettid());
 }
 
 StagefrightRecorder::~StagefrightRecorder() {
@@ -861,6 +863,9 @@ status_t StagefrightRecorder::prepare() {
 
 status_t StagefrightRecorder::start() {
     ALOGV("start");
+    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_START_LATENCY,
+            mRecorderExtendedStats == NULL ? 0 : mRecorderExtendedStats->getProfileTimes());
+
     if (mOutputFd < 0) {
         ALOGE("Output file descriptor is invalid");
         return INVALID_OPERATION;
@@ -892,6 +897,8 @@ status_t StagefrightRecorder::start() {
             }
             sp<MetaData> meta = new MetaData;
             setupMPEG4orWEBMMetaData(&meta);
+
+            meta->setPointer(ExtendedStats::MEDIA_STATS_FLAG, mRecorderExtendedStats.get());
             status = mWriter->start(meta.get());
             break;
         }
@@ -1006,6 +1013,7 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
         format->setInt32("time-scale", mAudioTimeScale);
     }
 
+    format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
     sp<MediaSource> audioEncoder =
             MediaCodecSource::Create(mLooper, format, audioSource);
     // If encoder could not be created (as in LPCM), then
@@ -1267,6 +1275,8 @@ status_t StagefrightRecorder::checkVideoEncoderCapabilities(
     Vector<CodecCapabilities> codecs;
     OMXClient client;
     CHECK_EQ(client.connect(), (status_t)OK);
+    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_ALLOCATE_NODE(true) /* isVideo */,
+            mRecorderExtendedStats == NULL ? 0 : mRecorderExtendedStats->getProfileTimes());
     QueryCodecs(
             client.interface(),
             (mVideoEncoder == VIDEO_ENCODER_H263 ? MEDIA_MIMETYPE_VIDEO_H263 :
@@ -1275,6 +1285,7 @@ status_t StagefrightRecorder::checkVideoEncoderCapabilities(
              mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC :
              mVideoEncoder == VIDEO_ENCODER_H265 ? MEDIA_MIMETYPE_VIDEO_HEVC : ""),
             false /* decoder */, true /* hwCodec */, &codecs);
+
     *supportsCameraSourceMetaDataMode = codecs.size() > 0;
     ALOGV("encoder %s camera source meta-data mode",
             *supportsCameraSourceMetaDataMode ? "supports" : "DOES NOT SUPPORT");
@@ -1485,6 +1496,9 @@ status_t StagefrightRecorder::setupMediaSource(
 
 status_t StagefrightRecorder::setupCameraSource(
         sp<CameraSource> *cameraSource) {
+    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_SET_CAMERA_SOURCE,
+            mRecorderExtendedStats == NULL ? 0 : mRecorderExtendedStats->getProfileTimes());
+
     status_t err = OK;
     bool encoderSupportsCameraSourceMetaDataMode;
     if ((err = checkVideoEncoderCapabilities(
@@ -1547,6 +1561,9 @@ status_t StagefrightRecorder::setupCameraSource(
 status_t StagefrightRecorder::setupVideoEncoder(
         sp<MediaSource> cameraSource,
         sp<MediaSource> *source) {
+    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_SET_ENCODER(true) /* isVideo */,
+            mRecorderExtendedStats == NULL ? 0 : mRecorderExtendedStats->getProfileTimes());
+
     source->clear();
 
     sp<AMessage> format = new AMessage();
@@ -1637,6 +1654,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
         flags |= MediaCodecSource::FLAG_USE_SURFACE_INPUT;
     }
 
+    format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
     sp<MediaCodecSource> encoder =
             MediaCodecSource::Create(mLooper, format, cameraSource, flags);
     if (encoder == NULL) {
@@ -1660,6 +1678,8 @@ status_t StagefrightRecorder::setupVideoEncoder(
 }
 
 status_t StagefrightRecorder::setupAudioEncoder(const sp<MediaWriter>& writer) {
+    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_SET_ENCODER(false) /* isVideo */,
+            mRecorderExtendedStats == NULL ? 0 : mRecorderExtendedStats->getProfileTimes());
     status_t status = BAD_VALUE;
     if (OK != (status = checkAudioEncoderCapabilities())) {
         return status;
@@ -1785,6 +1805,8 @@ void StagefrightRecorder::setupMPEG4orWEBMMetaData(sp<MetaData> *meta) {
 }
 
 status_t StagefrightRecorder::pause() {
+    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_PAUSE,
+            mRecorderExtendedStats == NULL ? 0 : mRecorderExtendedStats->getProfileTimes());
     ALOGV("pause");
     if (mWriter == NULL) {
         return UNKNOWN_ERROR;
@@ -1812,6 +1834,10 @@ status_t StagefrightRecorder::pause() {
 status_t StagefrightRecorder::stop() {
     ALOGV("stop");
     status_t err = OK;
+
+    // only profile if we'd started before
+    bool recorderStarted = mStarted;
+    RECORDER_STATS(profileStart, STATS_PROFILE_STOP, recorderStarted);
 
     if (mCaptureTimeLapse && mCameraSourceTimeLapse != NULL) {
         mCameraSourceTimeLapse->startQuickReadReturns();
@@ -1848,13 +1874,18 @@ status_t StagefrightRecorder::stop() {
         addBatteryData(params);
     }
 
+    if (recorderStarted) {
+        RECORDER_STATS(profileStop, STATS_PROFILE_STOP);
+        RECORDER_STATS(dump);
+        RECORDER_STATS(reset);
+    }
+
     return err;
 }
 
 status_t StagefrightRecorder::close() {
     ALOGV("close");
     stop();
-
     return OK;
 }
 
