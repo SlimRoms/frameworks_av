@@ -730,7 +730,11 @@ status_t ACodec::configureOutputBuffersFromNativeWindow(
             mNativeWindow.get(),
             def.format.video.nFrameWidth,
             def.format.video.nFrameHeight,
+#ifdef STE_HARDWARE
+            OMXCodec::OmxToHALFormat(def.format.video.eColorFormat));
+#else
             def.format.video.eColorFormat);
+#endif
 #endif
 
     if (err != 0) {
@@ -4937,8 +4941,9 @@ bool ACodec::BaseState::onOMXFillBufferDone(
                 mCodec->mSkipCutBuffer->submit(info->mData);
             }
             info->mData->meta()->setInt64("timeUs", timeUs);
+#ifndef STE_HARDWARE
             info->mData->meta()->setObject("graphic-buffer", info->mGraphicBuffer);
-
+#endif
             sp<AMessage> notify = mCodec->mNotify->dup();
             notify->setInt32("what", CodecBase::kWhatDrainThisBuffer);
             notify->setInt32("buffer-id", info->mBufferID);
