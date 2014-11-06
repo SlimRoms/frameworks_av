@@ -1139,6 +1139,18 @@ status_t ExtendedCodec::setAMRWBPLUSFormat(
     return err;
 }
 
+bool ExtendedCodec::useHWAACDecoder(const char *mime) {
+    char value[PROPERTY_VALUE_MAX] = {0};
+    int aaccodectype = 0;
+    aaccodectype = property_get("media.aaccodectype", value, NULL);
+    if (aaccodectype && !strncmp("0", value, 1) &&
+        !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC)) {
+        ALOGI("Using Hardware AAC Decoder");
+        return true;
+    }
+    return false;
+}
+
 bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
     /* pause is required for hardware component to release adsp resources */
     if (!strncmp(componentName, "OMX.qcom.", 9)) {
@@ -1420,6 +1432,11 @@ namespace android {
         ARG_TOUCH(flags);
         ARG_TOUCH(nodeID);
         ARG_TOUCH(componentName);
+    }
+
+    bool ExtendedCodec::useHWAACDecoder(const char *mime) {
+        ARG_TOUCH(mime);
+        return false;
     }
 
     void ExtendedCodec::enableSmoothStreaming(
