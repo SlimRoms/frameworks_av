@@ -404,8 +404,6 @@ status_t ExtendedCodec::setAudioFormat(
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
         err = setAMRWBPLUSFormat(numChannels, sampleRate, OMXhandle, nodeID);
-    } else {
-        err = BAD_VALUE;
     }
     return err;
 }
@@ -1229,7 +1227,7 @@ namespace android {
         ARG_TOUCH(OMXhandle);
         ARG_TOUCH(nodeID);
         ARG_TOUCH(isEncoder);
-        return ERROR_UNSUPPORTED;
+        return OK;
     }
 
     status_t ExtendedCodec::setAudioFormat(
@@ -1241,7 +1239,7 @@ namespace android {
         ARG_TOUCH(OMXhandle);
         ARG_TOUCH(nodeID);
         ARG_TOUCH(isEncoder);
-        return ERROR_UNSUPPORTED;
+        return OK;
     }
 
     status_t ExtendedCodec::setVideoFormat(
