@@ -42,6 +42,8 @@
 #include <media/stagefright/ExtendedCodec.h>
 #include <media/stagefright/OMXCodec.h>
 
+#include <media/stagefright/FFMPEGSoftCodec.h>
+
 #define ARG_TOUCH(x) (void)x
 
 #ifdef ENABLE_AV_ENHANCEMENTS
@@ -89,6 +91,7 @@ static const MetaKeyEntry MetaKeyTable[] {
 
    {kkeyAacFormatAdif        , "aac-format-adif"        , INT32},  // bool (int32_t)
    {kkeyAacFormatLtp         , "aac-format-ltp"         , INT32},
+   {kKeyAACAOT               , "aac-profile"            , INT32},
 
    //DTS subtype
    {kKeyDTSSubtype           , "dts-subtype"            , INT32},  //int32_t
@@ -195,10 +198,11 @@ uint32_t ExtendedCodec::getComponentQuirks(
 
 const char* ExtendedCodec::overrideComponentName(
         uint32_t quirks, const sp<MetaData> &meta, const char *mime, bool isEncoder) {
-    const char* componentName = NULL;
     char value[PROPERTY_VALUE_MAX] = {0};
     int sw_codectype = 0;
     int enableSwHevc = 0;
+
+    const char* componentName = FFMPEGSoftCodec::overrideComponentName(quirks, meta, mime, isEncoder);
 
     if (quirks & kRequiresWMAProComponent)
     {
@@ -221,6 +225,8 @@ const char* ExtendedCodec::overrideComponentName(
            componentName = "OMX.qcom.video.decoder.hevcswvdec";
         }
     }
+
+    
     return componentName;
 }
 
@@ -229,6 +235,8 @@ void ExtendedCodec::overrideComponentName(
     char value[PROPERTY_VALUE_MAX] = {0};
     int sw_codectype = 0;
     int enableSwHevc = 0;
+
+    FFMPEGSoftCodec::overrideComponentName(quirks, msg, componentName, mime, isEncoder);
 
     if (quirks & kRequiresWMAProComponent)
     {
@@ -372,8 +380,7 @@ status_t ExtendedCodec::setAudioFormat(
     ALOGV("setAudioFormat called");
     status_t err = OK;
 
-    if ((!strcasecmp(MEDIA_MIMETYPE_AUDIO_AC3, mime)) ||
-        (!strcasecmp(MEDIA_MIMETYPE_AUDIO_EAC3, mime))) {
+    if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_EAC3, mime)) {
         int32_t numChannels, sampleRate;
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
@@ -1298,7 +1305,7 @@ namespace android {
         ARG_TOUCH(meta);
         ARG_TOUCH(mime);
         ARG_TOUCH(isEncoder);
-        return NULL;
+        return FFMPEGSoftCodec::overrideComponentName(quirks, meta, mime, isEncoder);
     }
 
     void ExtendedCodec::overrideComponentName(
@@ -1310,6 +1317,7 @@ namespace android {
         ARG_TOUCH(componentName);
         ARG_TOUCH(mime);
         ARG_TOUCH(isEncoder);
+        return FFMPEGSoftCodec::overrideComponentName(quirks, msg, componentName, mime, isEncoder);
     }
 
     void ExtendedCodec::overrideMimeType(
