@@ -85,9 +85,12 @@ static audio_io_handle_t open_output(audio_module_handle_t module,
     config.sample_rate = *pSamplingRate;
     config.format = *pFormat;
     config.channel_mask = *pChannelMask;
+#ifndef HAVE_PRE_KITKAT_AUDIO_BLOB
     if (offloadInfo != NULL) {
         config.offload_info = *offloadInfo;
     }
+#endif
+
     audio_io_handle_t output = AUDIO_IO_HANDLE_NONE;
     status_t status = af->openOutput(module, &output, &config, pDevices,
                                      String8(""), pLatencyMs, flags);
@@ -95,9 +98,11 @@ static audio_io_handle_t open_output(audio_module_handle_t module,
         *pSamplingRate = config.sample_rate;
         *pFormat = config.format;
         *pChannelMask = config.channel_mask;
+#ifndef HAVE_PRE_KITKAT_AUDIO_BLOB
         if (offloadInfo != NULL) {
             *((audio_offload_info_t *)offloadInfo) = config.offload_info;
         }
+#endif
     }
     return output;
 }
