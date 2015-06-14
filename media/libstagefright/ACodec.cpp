@@ -87,6 +87,8 @@
 #include <OMX_Component.h>
 #include <OMX_IndexExt.h>
 
+#include <cutils/properties.h>
+
 #include "include/ExtendedUtils.h"
 
 #ifdef USE_SAMSUNG_COLORFORMAT
@@ -2719,6 +2721,8 @@ status_t ACodec::setupVideoEncoder(const char *mime, const sp<AMessage> &msg) {
     if (!msg->findInt32("stride", &stride)) {
         stride = width;
     }
+
+    stride = property_get_int32("debug.stride", stride);
 
     video_def->nStride = stride;
 
