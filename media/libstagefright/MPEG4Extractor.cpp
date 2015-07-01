@@ -3307,6 +3307,10 @@ status_t MPEG4Source::read(
             CHECK(mBuffer == NULL);
             return err;
         }
+        if (size > mBuffer->size()) {
+            ALOGE("buffer too small: %zu > %zu", size, mBuffer->size());
+            return ERROR_BUFFER_TOO_SMALL;
+        }
     }
 
     if (!mIsAVC || mWantsNALFragments) {
@@ -3551,6 +3555,10 @@ status_t MPEG4Source::fragmentedRead(
             CHECK(mBuffer == NULL);
             ALOGV("acquire_buffer returned %d", err);
             return err;
+        }
+        if (size > mBuffer->size()) {
+            ALOGE("buffer too small: %zu > %zu", size, mBuffer->size());
+            return ERROR_BUFFER_TOO_SMALL;
         }
     }
 
