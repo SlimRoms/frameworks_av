@@ -475,15 +475,14 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
                 }
             }
         }
-
         // if display-port is connected and being used in voice usecase,
         // play ringtone over speaker and display-port
         if ((strategy == STRATEGY_SONIFICATION) && getDpConnAndAllowedForVoice()) {
-            uint32_t device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_AUX_DIGITAL;
-            if (device2 != AUDIO_DEVICE_NONE) {
-                device |= device2;
-                break;
-            }
+             uint32_t device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_AUX_DIGITAL;
+             if (device2 != AUDIO_DEVICE_NONE) {
+                 device |= device2;
+                 break;
+             }
         }
         // The second device used for sonification is the same as the device used by media strategy
         // FALL THROUGH
