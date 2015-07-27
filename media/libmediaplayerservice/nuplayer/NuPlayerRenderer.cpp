@@ -1590,10 +1590,11 @@ void NuPlayer::Renderer::onResume() {
     }
 
     if (mHasAudio) {
+        status_t status = NO_ERROR;
         cancelAudioOffloadPauseTimeout();
-        status_t err = mAudioSink->start();
-        if (err != OK) {
-            ALOGE("cannot start AudioSink err %d", err);
+        status = mAudioSink->start();
+        if (offloadingAudio() && status != NO_ERROR && status != INVALID_OPERATION) {
+            ALOGD("received error :%d on resume for offload track posting TEAR_DOWN event",status);
             notifyAudioTearDown();
         }
         //Update anchor time after resuming playback.
