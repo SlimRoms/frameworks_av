@@ -90,6 +90,11 @@
 #else
 #define DLOGD
 #endif // DOLBY_END
+
+#ifndef UINT32_MAX
+#define UINT32_MAX       (4294967295U)
+#endif
+
 namespace android {
 
 class MPEG4Source : public MediaSource {
@@ -1793,13 +1798,13 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
-        // ©xyz
+        // \A9xyz
         case FOURCC(0xA9, 'x', 'y', 'z'):
         {
             *offset += chunk_size;
 
-            // Best case the total data length inside "©xyz" box
-            // would be 8, for instance "©xyz" + "\x00\x04\x15\xc7" + "0+0/",
+            // Best case the total data length inside "\A9xyz" box
+            // would be 8, for instance "\A9xyz" + "\x00\x04\x15\xc7" + "0+0/",
             // where "\x00\x04" is the text string length with value = 4,
             // "\0x15\xc7" is the language code = en, and "0+0" is a
             // location (string) value with longitude = 0 and latitude = 0.
@@ -3637,12 +3642,26 @@ status_t MPEG4Source::parseSampleAuxiliaryInformationOffsets(
         return ERROR_IO;
     }
     offset += 4;
+    if (entrycount == 0) {
+        return OK;
+    }
+    if (entrycount > UINT32_MAX / 8) {
+        return ERROR_MALFORMED;
+    }
 
     if (entrycount > mCurrentSampleInfoOffsetsAllocSize) {
-        mCurrentSampleInfoOffsets = (uint64_t*) realloc(mCurrentSampleInfoOffsets, entrycount * 8);
+        uint64_t *newPtr = (uint64_t *)realloc(mCurrentSampleInfoOffsets, entrycount * 8);
+        if (newPtr == NULL) {
+            return NO_MEMORY;
+        }
+        mCurrentSampleInfoOffsets = newPtr;
         mCurrentSampleInfoOffsetsAllocSize = entrycount;
     }
     mCurrentSampleInfoOffsetCount = entrycount;
+
+    if (mCurrentSampleInfoOffsets == NULL) {
+        return OK;
+    }
 
     for (size_t i = 0; i < entrycount; i++) {
         if (version == 0) {
