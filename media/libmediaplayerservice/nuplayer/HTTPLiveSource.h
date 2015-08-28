@@ -86,7 +86,7 @@ private:
     bool mMetadataSelected;
     BufferingSettings mBufferingSettings;
 
-    void onSessionNotify(const sp<AMessage> &msg);
+    virtual void onSessionNotify(const sp<AMessage> &msg);
     void pollForRawData(
             const sp<AMessage> &msg, int32_t currentGeneration,
             LiveSession::StreamType fetchType, int32_t pushWhat);
