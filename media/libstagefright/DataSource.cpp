@@ -320,13 +320,14 @@ sp<DataSource> DataSource::CreateFromURI(
                 *contentType = httpSource->getMIMEType();
             }
 
+
             if (useExtendedCache) {
                 source = AVFactory::get()->createCachedSource(
                         httpSource,
                         cacheConfig.isEmpty() ? NULL : cacheConfig.string(),
                         disconnectAtHighwatermark);
             } else {
-                source = new NuCachedSource2(
+                source = NuCachedSource2::Create(
                         httpSource,
                         cacheConfig.isEmpty() ? NULL : cacheConfig.string(),
                         disconnectAtHighwatermark);
