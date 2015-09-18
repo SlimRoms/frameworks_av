@@ -142,6 +142,10 @@ void AVNuUtils::checkFormatChange(bool * /*formatChange*/,
         const sp<ABuffer> & /*accessUnit*/) {
 }
 
+void AVNuUtils::addFlagsInMeta(const sp<ABuffer> & /*buffer*/,
+        int32_t /*flags*/, bool /*isAudio*/) {
+}
+
 uint32_t AVNuUtils::getFlags() {
     return 0;
 }
