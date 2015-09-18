@@ -36,6 +36,9 @@
 static const int kDumpLockRetries = 50;
 static const int kDumpLockSleepUs = 20000;
 
+#include "mediaplayerservice/AVNuExtensions.h"
+#include "mediaplayerservice/AVMediaServiceExtensions.h"
+
 namespace android {
 
 // key for media statistics
@@ -767,6 +770,8 @@ status_t NuPlayerDriver::getMetadata(
     meta.appendBool(
             Metadata::kSeekAvailable,
             mPlayerFlags & NuPlayer::Source::FLAG_CAN_SEEK);
+
+    AVMediaServiceUtils::get()->appendMeta(&meta);
 
     return OK;
 }
