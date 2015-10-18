@@ -1469,7 +1469,14 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 return ERROR_MALFORMED;
 
             off64_t stop_offset = *offset + chunk_size;
-            *offset = data_offset + sizeof(buffer);
+            if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_MPEG, FourCC2MIME(chunk_type)) ||
+                !strcasecmp(MEDIA_MIMETYPE_AUDIO_AMR_WB, FourCC2MIME(chunk_type))) {
+                // ESD is not required in mp3
+                // amr wb with damr atom corrupted can cause the clip to not play
+               *offset = stop_offset;
+            } else {
+               *offset = data_offset + sizeof(buffer);
+            }
 
             if (mIsQT && chunk_type == FOURCC('m', 'p', '4', 'a')) {
                 if (version == 1) {
