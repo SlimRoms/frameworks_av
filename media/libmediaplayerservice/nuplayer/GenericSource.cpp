@@ -558,11 +558,11 @@ void NuPlayer::GenericSource::disconnect() {
 
     if (dataSource != NULL) {
         // disconnect data source
-        if (dataSource->flags() & DataSource::kIsCachingDataSource) {
-            static_cast<NuCachedSource2 *>(dataSource.get())->disconnect();
+        if (mDataSource->flags() & DataSource::kIsCachingDataSource) {
+            static_cast<NuCachedSource2 *>(mDataSource.get())->disconnect();
         }
-    } else if (httpSource != NULL) {
-        static_cast<HTTPBase *>(httpSource.get())->disconnect();
+    } else if (mHttpSource != NULL) {
+        static_cast<HTTPBase *>(mHttpSource.get())->disconnect();
     }
 }
 
