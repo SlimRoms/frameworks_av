@@ -669,7 +669,7 @@ status_t CameraSource::start(MetaData *meta) {
     if(mRecPause) {
         mRecPause = false;
         mPauseAdjTimeUs = mPauseEndTimeUs - mPauseStartTimeUs;
-        ALOGV("resume : mPause Adj / End / Start : %lld / %lld / %lld us",
+        ALOGV("resume : mPause Adj / End / Start : %" PRId64 " / %" PRId64 " / %" PRId64" us",
             mPauseAdjTimeUs, mPauseEndTimeUs, mPauseStartTimeUs);
         return OK;
     }
@@ -729,7 +729,7 @@ status_t CameraSource::pause() {
     mPauseStartTimeUs = mLastFrameTimestampUs;
     //record the end time too, or there is a risk the end time is 0
     mPauseEndTimeUs = mLastFrameTimestampUs;
-    ALOGV("pause : mPauseStart %lld us, #Queued Frames : %d",
+    ALOGV("pause : mPauseStart %" PRId64 " us, #Queued Frames : %zd",
         mPauseStartTimeUs, mFramesReceived.size());
     return OK;
 }
@@ -937,7 +937,7 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
 
     if (mRecPause == true) {
         if(!mFramesReceived.empty()) {
-            ALOGV("releaseQueuedFrames - #Queued Frames : %d", mFramesReceived.size());
+            ALOGV("releaseQueuedFrames - #Queued Frames : %zd", mFramesReceived.size());
             releaseQueuedFrames();
         }
         ALOGV("release One Video Frame for Pause : %" PRId64 "us", timestampUs);
