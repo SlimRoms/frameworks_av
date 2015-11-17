@@ -47,7 +47,6 @@ struct ACodec;
 struct ALooper;
 struct IMediaHTTPConnection;
 struct MediaCodec;
-struct MediaSource;
 struct MediaHTTP;
 struct NuCachedSource2;
 class CameraParameters;
@@ -160,6 +159,9 @@ struct AVUtils {
             List<int64_t> &/*decodeTimeQueue*/) {}
 
     virtual bool useQCHWEncoder(const sp<AMessage> &, AString &) { return false; }
+
+    virtual bool canDeferRelease(const sp<MetaData> &/*meta*/) { return false; }
+    virtual void setDeferRelease(sp<MetaData> &/*meta*/) {}
 
     struct HEVCMuxer {
 

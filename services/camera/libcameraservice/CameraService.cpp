@@ -935,6 +935,16 @@ void CameraService::finishConnectLocked(const sp<BasicClient>& client,
         LOG_ALWAYS_FATAL("%s: Invalid state for CameraService, clients not evicted properly",
                 __FUNCTION__);
     }
+
+    // And register a death notification for the client callback. Do
+    // this last to avoid Binder policy where a nested Binder
+    // transaction might be pre-empted to service the client death
+    // notification if the client process dies before linkToDeath is
+    // invoked.
+    sp<IBinder> remoteCallback = client->getRemote();
+    if (remoteCallback != nullptr) {
+        remoteCallback->linkToDeath(this);
+    }
 }
 
 status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clientPid,
@@ -1874,11 +1884,9 @@ CameraService::BasicClient::~BasicClient() {
 
 void CameraService::BasicClient::disconnect() {
     if (mDisconnected) {
-        ALOGE("%s: Disconnect called on already disconnected client for device %d", __FUNCTION__,
-                mCameraId);
         return;
     }
-    mDisconnected = true;;
+    mDisconnected = true;
 
     mCameraService->removeByClient(this);
     mCameraService->logDisconnected(String8::format("%d", mCameraId), mClientPid,
@@ -2024,7 +2032,11 @@ sp<CameraService::Client> CameraService::Client::getClientFromCookie(void* user)
 
 void CameraService::Client::notifyError(ICameraDeviceCallbacks::CameraErrorCode errorCode,
         const CaptureResultExtras& resultExtras) {
-    mRemoteCallback->notifyCallback(CAMERA_MSG_ERROR, CAMERA_ERROR_RELEASED, 0);
+    if (mRemoteCallback != NULL) {
+        mRemoteCallback->notifyCallback(CAMERA_MSG_ERROR, CAMERA_ERROR_RELEASED, 0);
+    } else {
+        ALOGE("mRemoteCallback is NULL!!");
+    }
 }
 
 // NOTE: function is idempotent
