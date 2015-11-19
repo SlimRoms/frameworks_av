@@ -227,7 +227,7 @@ status_t convertMetaDataToMessage(
 
     int32_t bitsPerSample;
     if (meta->findInt32(kKeyBitsPerSample, &bitsPerSample)) {
-        msg->setInt32("bit-width", bitsPerSample);
+        msg->setInt32("bits-per-sample", bitsPerSample);
     }
 
     uint32_t type;
@@ -685,7 +685,7 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
         }
 
         int32_t bitsPerSample;
-        if (msg->findInt32("bit-width", &bitsPerSample)) {
+        if (msg->findInt32("bits-per-sample", &bitsPerSample)) {
             meta->setInt32(kKeyBitsPerSample, bitsPerSample);
         }
     }
