@@ -246,7 +246,6 @@ public:
     status_t    getMaxAmplitude(int* max);
     virtual status_t    start();
     virtual status_t    stop();
-    virtual status_t    pause();
     status_t    reset();
     status_t    init();
     status_t    close();
@@ -275,6 +274,9 @@ protected:
     bool                        mIsOutputFileSet;
     Mutex                       mLock;
     Mutex                       mNotifyLock;
+
+public:
+    virtual status_t    pause();
 };
 
 };  // namespace android
