@@ -140,6 +140,8 @@ ifeq ($(TARGET_USES_QCOM_BSP), true)
     LOCAL_CFLAGS += -DQTI_BSP
 endif
 
+LOCAL_C_INCLUDES += $(call project-path-for,qcom-media)/mm-core/inc
+
 # enable experiments only in userdebug and eng builds
 ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DENABLE_STAGEFRIGHT_EXPERIMENTS
@@ -160,6 +162,7 @@ LOCAL_CLANG := true
 # FFMPEG plugin
 LOCAL_C_INCLUDES += $(TOP)/external/stagefright-plugins/include
 
+#LOCAL_CFLAGS += -DLOG_NDEBUG=0
 LOCAL_MODULE:= libstagefright
 
 LOCAL_MODULE_TAGS := optional

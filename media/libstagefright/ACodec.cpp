@@ -1629,11 +1629,7 @@ status_t ACodec::setComponentRole(
     }
 
     if (i == kNumMimeToRole) {
-        status_t err = ERROR_UNSUPPORTED;
-        if (!strncmp(mComponentName.c_str(), "OMX.ffmpeg.", 11)) {
-            err = FFMPEGSoftCodec::setSupportedRole(mOMX, mNode, isEncoder, mime);
-        }
-        return err;
+        return FFMPEGSoftCodec::setSupportedRole(mOMX, mNode, isEncoder, mime);
     }
 
     const char *role =
@@ -2956,10 +2952,9 @@ status_t ACodec::setupVideoDecoder(
     status_t err = GetVideoCodingTypeFromMime(mime, &compressionFormat);
 
     if (err != OK) {
-        if (!strncmp(mComponentName.c_str(), "OMX.ffmpeg.", 11)) {
-            err = FFMPEGSoftCodec::setVideoFormat(
-                    msg, mime, mOMX, mNode, mIsEncoder, &compressionFormat);
-        }
+        err = FFMPEGSoftCodec::setVideoFormat(
+                    msg, mime, mOMX, mNode, mIsEncoder, &compressionFormat,
+                    mComponentName.c_str());
         if (err != OK) {
             return err;
         }
@@ -3112,10 +3107,9 @@ status_t ACodec::setupVideoEncoder(const char *mime, const sp<AMessage> &msg) {
     err = GetVideoCodingTypeFromMime(mime, &compressionFormat);
 
     if (err != OK) {
-        if (!strncmp(mComponentName.c_str(), "OMX.ffmpeg.", 11)) {
-            err = FFMPEGSoftCodec::setVideoFormat(
-                    msg, mime, mOMX, mNode, mIsEncoder, &compressionFormat);
-        }
+        err = FFMPEGSoftCodec::setVideoFormat(
+                msg, mime, mOMX, mNode, mIsEncoder, &compressionFormat,
+                mComponentName.c_str());
         if (err != OK) {
             ALOGE("Not a supported video mime type: %s", mime);
             return err;
