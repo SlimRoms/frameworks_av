@@ -969,7 +969,6 @@ status_t ACodec::setupNativeWindowSizeFormatAndUsage(
 #endif
 
     ALOGV("gralloc usage: %#x(OMX) => %#x(ACodec)", omxUsage, usage);
-
     int32_t width = 0, height = 0;
     int32_t isAdaptivePlayback = 0;
 
@@ -986,8 +985,8 @@ status_t ACodec::setupNativeWindowSizeFormatAndUsage(
     }
     err = setNativeWindowSizeFormatAndUsage(
             nativeWindow,
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
+            width,
+            height,
 #ifdef USE_SAMSUNG_COLORFORMAT
             eNativeColorFormat,
 #else
