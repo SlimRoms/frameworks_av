@@ -177,7 +177,8 @@ static bool IsSoftwareCodec(const char *componentName) {
         return true;
     }
 #endif // DOLBY_END
-    if (!strncmp("OMX.google.", componentName, 11)) {
+    if (!strncmp("OMX.google.", componentName, 11)
+        || !strncmp("OMX.ffmpeg.", componentName, 11)) {
         return true;
     }
 
