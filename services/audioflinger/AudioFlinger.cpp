@@ -83,6 +83,9 @@
 #include <media/nbaio/PipeReader.h>
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
+#ifdef SRS_PROCESSING
+#include "postpro_patch.h"
+#endif
 
 // ----------------------------------------------------------------------------
 
@@ -1079,6 +1082,13 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         Mutex::Autolock _l(mLock);
         status_t final_result = NO_ERROR;
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_SET(keyValuePairs);
+        for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+            PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+            thread->setPostPro();
+        }
+#endif
         {
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_PARAMETER;
@@ -1173,6 +1183,9 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
 
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         String8 out_s8;
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_GET(keys, out_s8);
+#endif
 
         for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
             char *s;
@@ -1398,6 +1411,12 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::getEffectThread_l(int sessionId, 
 
 
 
+void AudioFlinger::PlaybackThread::setPostPro()
+{
+    Mutex::Autolock _l(mLock);
+    if (mType == OFFLOAD)
+        broadcast_l();
+}
 // ----------------------------------------------------------------------------
 
 AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
