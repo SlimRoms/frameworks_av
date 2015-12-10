@@ -40,6 +40,7 @@ LOCAL_SHARED_LIBRARIES :=       \
     libstagefright_wfd          \
     libutils                    \
     libvorbisidec               \
+	libaudioutils               \
 
 LOCAL_STATIC_LIBRARIES :=       \
     libstagefright_nuplayer     \
@@ -58,7 +59,7 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libavextensions                      \
     $(TOP)/frameworks/av/media/libstagefright/mpeg2ts               \
 
-LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
+LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall #-DLOG_NDEBUG=0
 LOCAL_CLANG := true
 
 LOCAL_MODULE:= libmediaplayerservice
