@@ -35,11 +35,11 @@
 #include <camera/ICamera.h>
 #include <media/mediarecorder.h>
 #include <media/IOMX.h>
+#include <media/AudioParameter.h>
 #include "ESQueue.h"
 
 namespace android {
 
-class AudioParameter;
 class MetaData;
 class MediaExtractor;
 class MPEG4Writer;
