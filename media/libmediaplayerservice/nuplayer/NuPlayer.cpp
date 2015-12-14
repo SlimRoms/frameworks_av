@@ -1300,7 +1300,7 @@ void NuPlayer::onResume() {
     } 
     // |mAudioDecoder| may have been released due to the pause timeout, so re-create it if
     // needed.
-    if (audioDecoderStillNeeded() && mAudioDecoder == NULL && !mOffloadDecodedPCM) {
+    if (audioDecoderStillNeeded() && mAudioDecoder == NULL) {
         instantiateDecoder(true /* audio */, &mAudioDecoder);
     }
     if (mRenderer != NULL) {
@@ -1376,8 +1376,8 @@ void NuPlayer::onStart(int64_t startPositionUs) {
 
     mOffloadAudio =
         canOffloadStream(audioMeta, (videoFormat != NULL), mSource->isStreaming(), streamType);
-    if (!mOffloadAudio) {
-        mOffloadAudio = canOffloadDecodedPCMStream(audioMeta, (videoFormat != NULL), mSource->isStreaming(), streamType);
+    if (!mOffloadAudio && (audioMeta != NULL)) {
+        mOffloadDecodedPCM = mOffloadAudio = canOffloadDecodedPCMStream(audioMeta, (videoFormat != NULL), mSource->isStreaming(), streamType);
     }
 
     if (mOffloadAudio) {
@@ -1520,6 +1520,7 @@ void NuPlayer::tryOpenAudioSinkForOffload(const sp<AMessage> &format, bool hasVi
     if (err != OK) {
         // Any failure we turn off mOffloadAudio.
         mOffloadAudio = false;
+        mOffloadDecodedPCM = false;
     } else if (mOffloadAudio) {
         sp<MetaData> audioMeta =
                 mSource->getFormatMeta(true /* audio */);
@@ -1539,6 +1540,7 @@ void NuPlayer::determineAudioModeChange() {
     if (mRenderer == NULL) {
         ALOGW("No renderer can be used to determine audio mode. Use non-offload for safety.");
         mOffloadAudio = false;
+        mOffloadDecodedPCM = false;
         return;
     }
 
@@ -1549,7 +1551,7 @@ void NuPlayer::determineAudioModeChange() {
     bool canOffload = canOffloadStream(
             audioMeta, hasVideo, mSource->isStreaming(), streamType);
     if (!canOffload) {
-        canOffload = canOffloadDecodedPCMStream(audioMeta, (videoFormat != NULL), mSource->isStreaming(), streamType);
+        mOffloadDecodedPCM = canOffload = canOffloadDecodedPCMStream(audioMeta, (videoFormat != NULL), mSource->isStreaming(), streamType);
     }
     if (canOffload) {
         if (!mOffloadAudio) {
@@ -1562,7 +1564,6 @@ void NuPlayer::determineAudioModeChange() {
         if (mOffloadAudio) {
             mRenderer->signalDisableOffloadAudio();
             mOffloadAudio = false;
-            setDecodedPcmOffload(false);
         }
     }
 }
@@ -2490,7 +2491,7 @@ bool NuPlayer::canOffloadDecodedPCMStream(const sp<MetaData> audioMeta,
                 AVNuUtils::get()->createPCMMetaFromSource(audioMeta);
 
         ALOGI("canOffloadDecodedPCMStream");
-        audioMeta->dumpToLog();
+        audioPCMMeta->dumpToLog();
         mOffloadDecodedPCM =
                 ((mime && !AVNuUtils::get()->pcmOffloadException(audioMeta)) &&
                 canOffloadStream(audioPCMMeta, hasVideo, isStreaming, streamType));
