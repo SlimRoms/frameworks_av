@@ -29,7 +29,6 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_FLAC_OFFLOAD)),true)
 endif
 
 LOCAL_MODULE:= libavextensions
-LOCAL_CFLAGS += -DLOG_NDEBUG=0
 
 LOCAL_MODULE_TAGS := optional
 
@@ -58,7 +57,6 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
 endif
 
 LOCAL_MODULE:= libavmediaextentions
-LOCAL_CFLAGS += -DLOG_NDEBUG=0
 
 LOCAL_MODULE_TAGS := optional
 
@@ -97,7 +95,6 @@ ifeq ($(TARGET_BOARD_PLATFORM),msm8974)
 endif
 
 LOCAL_MODULE:= libavmediaserviceextensions
-LOCAL_CFLAGS += -DLOG_NDEBUG=0
 
 LOCAL_MODULE_TAGS := optional
 
