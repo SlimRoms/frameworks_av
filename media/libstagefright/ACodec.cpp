@@ -956,6 +956,7 @@ status_t ACodec::setupNativeWindowSizeFormatAndUsage(
 #endif
             mRotationDegrees,
             usage);
+#ifdef QCOM_HARDWARE
     if (err == OK) {
         OMX_CONFIG_RECTTYPE rect;
         InitOMXParams(&rect);
@@ -973,6 +974,7 @@ status_t ACodec::setupNativeWindowSizeFormatAndUsage(
             err = native_window_set_crop(nativeWindow, &crop);
         }
     }
+#endif
     return err;
 }
 
