@@ -278,9 +278,9 @@ status_t SampleTable::setSampleToChunkParams(
         return OK;
     }
 
-    if ((off64_t)(kMaxOffset - 8 -
+    if ((kMaxOffset - 8 -
             ((mNumSampleToChunkOffsets - 1) * sizeof(SampleToChunkEntry)))
-            < mSampleToChunkOffset) {
+            < (size_t)mSampleToChunkOffset) {
         return ERROR_MALFORMED;
     }
 
