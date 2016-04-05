@@ -94,6 +94,7 @@ NuPlayer::Decoder::Decoder(
       mIsSecure(false),
       mFormatChangePending(false),
       mTimeChangePending(false),
+      mVideoFormatChangeDoFlushOnly(false),
       mResumePending(false),
       mComponentName("decoder") {
     mCodecLooper = new ALooper;
@@ -264,6 +265,7 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
 
     mFormatChangePending = false;
     mTimeChangePending = false;
+    mVideoFormatChangeDoFlushOnly = false;
 
     ++mBufferGeneration;
 
@@ -783,9 +785,20 @@ status_t NuPlayer::Decoder::fetchInputData(sp<AMessage> &reply) {
                     mTimeChangePending = true;
                     err = ERROR_END_OF_STREAM;
                 } else if (seamlessFormatChange) {
-                    // reuse existing decoder and don't flush
-                    rememberCodecSpecificData(newFormat);
-                    continue;
+                    if (!mIsAudio &&
+                            newFormat != NULL &&
+                            newFormat->contains("prefer-adaptive-playback")) {
+                        ALOGV("in smooth streaming mode, "
+                             "do video flush in video seamless format change");
+                        mFormatChangePending = true;
+                        mVideoFormatChangeDoFlushOnly = true;
+                        err = ERROR_END_OF_STREAM;
+                    } else {
+                        // reuse existing decoder and don't flush
+                        rememberCodecSpecificData(newFormat);
+                        continue;
+                    }
+
                 } else {
                     // This stream is unaffected by the discontinuity
                     return -EWOULDBLOCK;
@@ -1013,10 +1026,14 @@ void NuPlayer::Decoder::finishHandleDiscontinuity(bool flushOnTimeChange) {
     sp<AMessage> msg = mNotify->dup();
     msg->setInt32("what", kWhatInputDiscontinuity);
     msg->setInt32("formatChange", mFormatChangePending);
+    if (mVideoFormatChangeDoFlushOnly) {
+        msg->setInt32("video-seamlessChange", mVideoFormatChangeDoFlushOnly);
+    }
     msg->post();
 
     mFormatChangePending = false;
     mTimeChangePending = false;
+    mVideoFormatChangeDoFlushOnly = false;
 }
 
 bool NuPlayer::Decoder::supportsSeamlessAudioFormatChange(
