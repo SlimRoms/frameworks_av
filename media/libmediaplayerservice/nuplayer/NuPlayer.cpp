@@ -1807,6 +1807,7 @@ status_t NuPlayer::instantiateDecoder(
             *decoder = new DecoderPassThrough(notify, mSource, mRenderer);
             ALOGV("instantiateDecoder audio DecoderPassThrough  hasVideo: %d", hasVideo);
         } else {
+            AVNuUtils::get()->setCodecOutputFormat(format);
             mSource->setOffloadAudio(false /* offload */);
 
             *decoder = new Decoder(notify, mSource, mPID, mUID, mRenderer);
