@@ -2592,11 +2592,10 @@ void AudioFlinger::PlaybackThread::cacheParameters_l()
     }
 }
 
-void AudioFlinger::PlaybackThread::invalidateTracks(audio_stream_type_t streamType)
+void AudioFlinger::PlaybackThread::invalidateTracks_l(audio_stream_type_t streamType)
 {
     ALOGV("MixerThread::invalidateTracks() mixer %p, streamType %d, mTracks.size %d",
             this,  streamType, mTracks.size());
-    Mutex::Autolock _l(mLock);
 
     size_t size = mTracks.size();
     for (size_t i = 0; i < size; i++) {
@@ -2605,6 +2604,12 @@ void AudioFlinger::PlaybackThread::invalidateTracks(audio_stream_type_t streamTy
             t->invalidate();
         }
     }
+}
+
+void AudioFlinger::PlaybackThread::invalidateTracks(audio_stream_type_t streamType)
+{
+    Mutex::Autolock _l(mLock);
+    invalidateTracks_l(streamType);
 }
 
 status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& chain)
@@ -5421,6 +5426,13 @@ void AudioFlinger::OffloadThread::flushHw_l()
         mCallbackThread->setWriteBlocked(mWriteAckSequence);
         mCallbackThread->setDraining(mDrainSequence);
     }
+}
+
+void AudioFlinger::OffloadThread::invalidateTracks(audio_stream_type_t streamType)
+{
+    Mutex::Autolock _l(mLock);
+    mFlushPending = true;
+    PlaybackThread::invalidateTracks_l(streamType);
 }
 
 // ----------------------------------------------------------------------------
