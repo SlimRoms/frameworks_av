@@ -669,6 +669,7 @@ void NuPlayer::GenericSource::onMessageReceived(const sp<AMessage> &msg) {
           const bool formatChange = true;
           if (trackType == MEDIA_TRACK_TYPE_AUDIO) {
               timeUs = mAudioLastDequeueTimeUs;
+              track->mReadMultiple = source->canReadMultiple();
           } else {
               timeUs = mVideoLastDequeueTimeUs;
           }

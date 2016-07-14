@@ -444,6 +444,12 @@ status_t BnMediaSource::onTransact(
             reply->writeInt32((int32_t)supportNonblockingRead());
             return NO_ERROR;
         }
+        case CANREADMULTIPLE: {
+            ALOGV("canReadmultiple");
+            CHECK_INTERFACE(IMediaSource, data, reply);
+            reply->writeBool(canReadMultiple());
+            return NO_ERROR;
+        }
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }
