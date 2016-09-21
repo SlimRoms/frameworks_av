@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "fab9d9a7_744a1585",
+        "filename": "media/libstagefright/FFMPEGSoftCodec.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 45,
+      "author": {
+        "id": 1000017
+      },
+      "writtenOn": "2016-09-21T10:40:15Z",
+      "side": 1,
+      "message": "This is missing and breaks compile for me...\nIs there a repo needed, like externel_ffmpeg?",
+      "revId": "23a6da9175181bd389e64b74a45ab751e16d4210",
+      "serverId": "f8201d64-d729-4630-b91d-5f8be02869f0",
+      "unresolved": false
+    }
+  ]
+}
