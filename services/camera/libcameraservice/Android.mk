@@ -1,3 +1,4 @@
+
 # Copyright 2010 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -84,7 +85,7 @@ ifneq ($(BOARD_NUMBER_OF_CAMERAS),)
 endif
 
 ifeq ($(TARGET_HAS_LEGACY_CAMERA_HAL1),true)
-    LOCAL_CFLAGS += -DNO_CAMERA_SERVER
+    LOCAL_CFLAGS += -DMETADATA_CAMERA_SOURCE
 endif
 
 LOCAL_MODULE:= libcameraservice
