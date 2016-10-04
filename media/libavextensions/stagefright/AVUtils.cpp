@@ -47,7 +47,6 @@
 #include "OMX_QCOMExtns.h"
 #include "QCMediaDefs.h"
 #include "QCMetaData.h"
-#include "QComOMXMetadata.h"
 #ifdef EXTENDED_OFFLOAD_ENABLED
 #include <mm-audio/audio_defs.h>
 #endif
@@ -55,7 +54,6 @@
 
 #include <binder/IPCThreadState.h>
 #include <camera/CameraParameters.h>
-#include <inttypes.h>
 
 #include "common/ExtensionsLoader.hpp"
 #include "stagefright/AVExtensions.h"
