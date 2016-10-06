@@ -35,6 +35,11 @@ LOCAL_C_INCLUDES := \
     frameworks/av/services/camera/libcameraservice \
     frameworks/av/services/mediaresourcemanager \
 
+
+ifeq ($(TARGET_HAS_LEGACY_CAMERA_HAL1),true)
+    LOCAL_CFLAGS += -DNO_CAMERA_SERVER
+endif
+
 LOCAL_MODULE:= mediaserver
 LOCAL_32_BIT_ONLY := true
 
