@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "fab9d9a7_ad94b337",
+        "filename": "camera/cameraserver/Android.mk",
+        "patchSetId": 4
+      },
+      "lineNbr": 18,
+      "author": {
+        "id": 1000017
+      },
+      "writtenOn": "2016-10-11T21:48:39Z",
+      "side": 1,
+      "message": "Insert this:\n$(warning Target has integrated cameraserver into mediaserver. This is weakening security measures introduced in 7.0)\nelse",
+      "revId": "5ee66531890ec0e12dcb8da6d1235d1bd1af1cb2",
+      "serverId": "f8201d64-d729-4630-b91d-5f8be02869f0",
+      "unresolved": false
+    }
+  ]
+}
