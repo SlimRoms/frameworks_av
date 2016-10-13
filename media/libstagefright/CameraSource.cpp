@@ -1272,19 +1272,13 @@ void CameraSource::processBufferQueueFrame(BufferItem& buffer) {
     mFrameAvailableCondition.signal();
 }
 
-MetadataBufferType CameraSource::metaDataStoredInVideoBuffers() const {
-    ALOGV("metaDataStoredInVideoBuffers");
+bool CameraSource::isMetaDataStoredInVideoBuffers() const {
+    ALOGV("isMetaDataStoredInVideoBuffers");
 
     // Output buffers will contain metadata if camera sends us buffer in metadata mode or via
     // buffer queue.
-    switch (mVideoBufferMode) {
-        case hardware::ICamera::VIDEO_BUFFER_MODE_DATA_CALLBACK_METADATA:
-            return kMetadataBufferTypeNativeHandleSource;
-        case hardware::ICamera::VIDEO_BUFFER_MODE_BUFFER_QUEUE:
-            return kMetadataBufferTypeANWBuffer;
-        default:
-            return kMetadataBufferTypeInvalid;
-    }
+    return (mVideoBufferMode == hardware::ICamera::VIDEO_BUFFER_MODE_DATA_CALLBACK_METADATA ||
+            mVideoBufferMode == hardware::ICamera::VIDEO_BUFFER_MODE_BUFFER_QUEUE);
 }
 
 CameraSource::ProxyListener::ProxyListener(const sp<CameraSource>& source) {
