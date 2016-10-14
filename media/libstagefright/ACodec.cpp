@@ -6019,6 +6019,7 @@ void ACodec::BaseState::onInputBufferFilled(const sp<AMessage> &msg) {
 
                 status_t err2 = OK;
                 switch (metaType) {
+                case kMetadataBufferTypeCameraSource:
                 case kMetadataBufferTypeInvalid:
                     break;
 #ifndef OMX_ANDROID_COMPILE_AS_32BIT_ON_64BIT_PLATFORMS
