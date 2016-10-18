@@ -438,9 +438,7 @@ public:
         data.writeInterfaceToken(IOMX::getInterfaceDescriptor());
         data.writeInt32((int32_t)node);
         data.writeInt32(port_index);
-        data.writeInt32((int32_t)enable);
-        data.writeInt32(type == NULL ? kMetadataBufferTypeANWBuffer : *type);
-
+        data.writeInt32((uint32_t)enable);
         remote()->transact(STORE_META_DATA_IN_BUFFERS, data, &reply);
 
         // read type even storeMetaDataInBuffers failed
@@ -1046,7 +1044,7 @@ status_t BnOMX::onTransact(
             OMX_U32 port_index = data.readInt32();
             OMX_BOOL enable = (OMX_BOOL)data.readInt32();
 
-            MetadataBufferType type = (MetadataBufferType)data.readInt32();
+            MetadataBufferType type = kMetadataBufferTypeInvalid;
             status_t err = storeMetaDataInBuffers(node, port_index, enable, &type);
 
             reply->writeInt32(type);

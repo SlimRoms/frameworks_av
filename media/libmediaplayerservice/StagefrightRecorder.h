@@ -24,8 +24,6 @@
 #include <media/stagefright/MediaSource.h>
 #include <system/audio.h>
 
-#include <MetadataBufferType.h>
-
 namespace android {
 
 class Camera;
@@ -124,7 +122,7 @@ protected:
 
     String8 mParams;
 
-    MetadataBufferType mMetaDataStoredInVideoBuffers;
+    bool mIsMetaDataStoredInVideoBuffers;
     MediaProfiles *mEncoderProfiles;
 
     int64_t mPauseStartTimeUs;

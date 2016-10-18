@@ -831,7 +831,7 @@ String8 CameraService::toString(std::set<userid_t> intSet) {
 Status CameraService::initializeShimMetadata(int cameraId) {
     int uid = getCallingUid();
 
-    String16 internalPackageName("cameraserver");
+    String16 internalPackageName("media");
     String8 id = String8::format("%d", cameraId);
     Status ret = Status::ok();
     sp<Client> tmp = nullptr;

@@ -277,18 +277,17 @@ struct CodecProfileLevel {
     OMX_U32 mLevel;
 };
 
-inline static const char *asString(MetadataBufferType i, const char *def = "??") {
+}  // namespace android
+
+inline static const char *asString(android::MetadataBufferType i, const char *def = "??") {
     using namespace android;
     switch (i) {
         case kMetadataBufferTypeCameraSource:   return "CameraSource";
         case kMetadataBufferTypeGrallocSource:  return "GrallocSource";
         case kMetadataBufferTypeANWBuffer:      return "ANWBuffer";
-        case kMetadataBufferTypeNativeHandleSource: return "NativeHandleSource";
         case kMetadataBufferTypeInvalid:        return "Invalid";
         default:                                return def;
     }
 }
-
-}  // namespace android
 
 #endif  // ANDROID_IOMX_H_
