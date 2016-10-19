@@ -10,8 +10,10 @@ LOCAL_MODULE_PATH := $(TARGET_OUT)/etc/seccomp_policy
 # use the 32 bit policy
 ifdef TARGET_2ND_ARCH
     LOCAL_SRC_FILES := $(LOCAL_PATH)/seccomp_policy/mediacodec-seccomp-$(TARGET_2ND_ARCH).policy
+    LOCAL_SRC_FILES += $(LOCAL_PATH)/seccomp_policy/mediacodec-seccomp-$(TARGET_2ND_ARCH)-slim.policy
 else
     LOCAL_SRC_FILES := $(LOCAL_PATH)/seccomp_policy/mediacodec-seccomp-$(TARGET_ARCH).policy
+    LOCAL_SRC_FILES += $(LOCAL_PATH)/seccomp_policy/mediacodec-seccomp-$(TARGET_ARCH)-slim.policy
 endif
 
 # allow device specific additions to the syscall whitelist
