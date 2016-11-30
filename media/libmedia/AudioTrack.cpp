@@ -1402,6 +1402,7 @@ status_t AudioTrack::createTrack_l()
     }
 
     audio_output_flags_t flags = mFlags;
+    audio_output_flags_t trackFlags = mFlags;
 
     pid_t tid = -1;
     if (mFlags & AUDIO_OUTPUT_FLAG_FAST) {
@@ -1410,6 +1411,9 @@ status_t AudioTrack::createTrack_l()
         }
     }
 
+    if (mTrackOffloaded) {
+        trackFlags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
+    }
     size_t temp = frameCount;   // temp may be replaced by a revised value of frameCount,
                                 // but we will still need the original value also
     audio_session_t originalSessionId = mSessionId;
@@ -1418,7 +1422,7 @@ status_t AudioTrack::createTrack_l()
                                                       mFormat,
                                                       mChannelMask,
                                                       &temp,
-                                                      &flags,
+                                                      &trackFlags,
                                                       mSharedBuffer,
                                                       output,
                                                       mClientPid,
