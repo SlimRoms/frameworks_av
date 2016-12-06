@@ -46,11 +46,11 @@
 #include <media/mediarecorder.h>
 #include <cutils/properties.h>
 
-#include "include/avc_utils.h"
 #include "include/ESDS.h"
 #include "include/HevcUtils.h"
 
 #include <stagefright/AVExtensions.h>
+#include "include/avc_utils.h"
 
 #ifndef __predict_false
 #define __predict_false(exp) __builtin_expect((exp) != 0, 0)
