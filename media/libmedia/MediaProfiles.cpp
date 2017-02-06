@@ -71,7 +71,6 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"480p", CAMCORDER_QUALITY_480P},
     {"720p", CAMCORDER_QUALITY_720P},
     {"1080p", CAMCORDER_QUALITY_1080P},
-    {"1440p", CAMCORDER_QUALITY_1440P},
     {"2160p", CAMCORDER_QUALITY_2160P},
     {"qvga", CAMCORDER_QUALITY_QVGA},
 
@@ -82,7 +81,6 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"timelapse480p", CAMCORDER_QUALITY_TIME_LAPSE_480P},
     {"timelapse720p", CAMCORDER_QUALITY_TIME_LAPSE_720P},
     {"timelapse1080p", CAMCORDER_QUALITY_TIME_LAPSE_1080P},
-    {"timelapse1440p", CAMCORDER_QUALITY_TIME_LAPSE_1440P},
     {"timelapse2160p", CAMCORDER_QUALITY_TIME_LAPSE_2160P},
     {"timelapseqvga", CAMCORDER_QUALITY_TIME_LAPSE_QVGA},
 
@@ -105,6 +103,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"2k", CAMCORDER_QUALITY_2k},
     {"timelapseqhd", CAMCORDER_QUALITY_TIME_LAPSE_QHD},
     {"timelapse2k", CAMCORDER_QUALITY_TIME_LAPSE_2k},
+    {"1440p", CAMCORDER_QUALITY_1440P},
+    {"timelapse1440p", CAMCORDER_QUALITY_TIME_LAPSE_1440P},
 };
 
 #if LOG_NDEBUG
