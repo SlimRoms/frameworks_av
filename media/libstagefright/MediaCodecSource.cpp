@@ -884,11 +884,11 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             MediaBuffer *mbuf = new MediaBuffer(outbuf->size());
-            mbuf->setObserver(this);
-            mbuf->add_ref();
-
+            memcpy(mbuf->data(), outbuf->data(), outbuf->size());
             sp<MetaData> meta = mbuf->meta_data();
             AVUtils::get()->setDeferRelease(meta);
+            mbuf->setObserver(this);
+            mbuf->add_ref();
 
             if (!(flags & MediaCodec::BUFFER_FLAG_CODECCONFIG)) {
                 if (mIsVideo) {

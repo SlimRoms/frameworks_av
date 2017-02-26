@@ -1438,6 +1438,55 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
         goto Exit;
     }
 
+    // Reject any effect on Direct output threads for now, since the format of
+    // mSinkBuffer is not guaranteed to be compatible with effect processing (PCM 16 stereo).
+    // Exception: allow effects for Direct PCM
+    if (mType == DIRECT && !mIsDirectPcm) {
+        ALOGW("createEffect_l() Cannot add effect %s on Direct output type thread %s",
+                desc->name, mThreadName);
+        lStatus = BAD_VALUE;
+        goto Exit;
+    }
+
+    // Reject any effect on mixer or duplicating multichannel sinks.
+    // TODO: fix both format and multichannel issues with effects.
+    if ((mType == MIXER || mType == DUPLICATING) && mChannelCount != FCC_2) {
+        ALOGW("createEffect_l() Cannot add effect %s for multichannel(%d) %s threads",
+                desc->name, mChannelCount, mType == MIXER ? "MIXER" : "DUPLICATING");
+        lStatus = BAD_VALUE;
+        goto Exit;
+    }
+
+    // Allow global effects only on offloaded and mixer threads
+    // Exception: allow effects for Direct PCM
+    if (sessionId == AUDIO_SESSION_OUTPUT_MIX) {
+        switch (mType) {
+        case MIXER:
+        case OFFLOAD:
+            break;
+        case DIRECT:
+            if (mIsDirectPcm) {
+                // Allow effects when direct PCM enabled on Direct output
+                break;
+            }
+        case DUPLICATING:
+        case RECORD:
+        default:
+            ALOGW("createEffect_l() Cannot add global effect %s on thread %s",
+                    desc->name, mThreadName);
+            lStatus = BAD_VALUE;
+            goto Exit;
+        }
+    }
+
+    // Only Pre processor effects are allowed on input threads and only on input threads
+    if ((mType == RECORD) != ((desc->flags & EFFECT_FLAG_TYPE_MASK) == EFFECT_FLAG_TYPE_PRE_PROC)) {
+        ALOGW("createEffect_l() effect %s (flags %08x) created on wrong thread type %d",
+                desc->name, desc->flags, mType);
+        lStatus = BAD_VALUE;
+        goto Exit;
+    }
+
     ALOGV("createEffect_l() thread %p effect %s on session %d", this, desc->name, sessionId);
 
     { // scope for mLock

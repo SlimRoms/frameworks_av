@@ -397,6 +397,7 @@ void MetaData::dumpToLog() const {
 
 status_t MetaData::writeToParcel(Parcel &parcel) {
     status_t status = OK;
+    status_t ret;
     size_t numItems = mItems.size();
     ret = parcel.writeUint32(uint32_t(numItems));
     if (ret) {
@@ -448,10 +449,8 @@ status_t MetaData::updateFromParcel(const Parcel &parcel) {
             int32_t key;
             uint32_t type;
             uint32_t size;
-            int32_t allocationType;
             status_t ret = parcel.readInt32(&key);
             ret |= parcel.readUint32(&type);
-            ret |= parcel.readInt32(&allocationType);
             ret |= parcel.readUint32(&size);
             if (ret != OK) {
                 break;
