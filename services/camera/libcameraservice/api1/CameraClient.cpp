@@ -525,6 +525,10 @@ void CameraClient::releaseRecordingFrameHandle(native_handle_t *handle) {
 
     mHardware->releaseRecordingFrame(dataPtr);
 
+#ifdef CAMERASERVICE_CLOSES_NATIVE_HANDLES
+    native_handle_close(handle);
+    native_handle_delete(handle);
+#endif
 }
 
 status_t CameraClient::setVideoBufferMode(int32_t videoBufferMode) {
