@@ -48,9 +48,10 @@
 #include <utils/String8.h>
 #include <private/android_filesystem_config.h>
 
+#include <stagefright/AVExtensions.h>
+
 // still doing some on/off toggling here.
 #define MEDIA_LOG       1
-
 
 namespace android {
 
@@ -219,7 +220,7 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
                 }
                 // what else is interesting and not already available?
               }
-	  }
+    }
        }
     }
 
@@ -291,6 +292,7 @@ void MediaExtractor::RegisterDefaultSniffers() {
     RegisterSniffer_l(SniffAAC);
     RegisterSniffer_l(SniffMPEG2PS);
     RegisterSniffer_l(SniffMidi);
+    RegisterSniffer_l(AVUtils::get()->getExtendedSniffer());
 
     gSniffersRegistered = true;
 }

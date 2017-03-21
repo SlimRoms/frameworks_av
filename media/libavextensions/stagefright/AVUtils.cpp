@@ -52,11 +52,14 @@ status_t AVUtils::convertMetaDataToMessage(
     return OK;
 }
 
+<<<<<<< HEAD
 status_t AVUtils::convertMessageToMetaData(
         const sp<AMessage> &, sp<MetaData> &) {
     return OK;
 }
 
+=======
+>>>>>>> fd64a9e... Stagefright: Make classes customizable and add AV extensions
 status_t AVUtils::mapMimeToAudioFormat(
         audio_format_t&, const char* ) {
     return OK;
@@ -67,6 +70,7 @@ status_t AVUtils::sendMetaDataToHal(
     return OK;
 }
 
+<<<<<<< HEAD
 bool AVUtils::hasAudioSampleBits(const sp<MetaData> &) {
     return false;
 }
@@ -74,6 +78,8 @@ bool AVUtils::hasAudioSampleBits(const sp<MetaData> &) {
 bool AVUtils::hasAudioSampleBits(const sp<AMessage> &) {
     return false;
 }
+=======
+>>>>>>> fd64a9e... Stagefright: Make classes customizable and add AV extensions
 
 int AVUtils::getAudioSampleBits(const sp<MetaData> &) {
     return 16;

@@ -31,13 +31,20 @@
 
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/MediaExtractor.h>
+<<<<<<< HEAD
 #include <media/stagefright/SharedMemoryBuffer.h>
+=======
+>>>>>>> fd64a9e... Stagefright: Make classes customizable and add AV extensions
 #include <common/AVExtensionsCommon.h>
 #include <system/audio.h>
 #include <media/IOMX.h>
 #include <camera/android/hardware/ICamera.h>
 #include <media/mediarecorder.h>
+<<<<<<< HEAD
 #include "ESQueue.h"
+=======
+
+>>>>>>> fd64a9e... Stagefright: Make classes customizable and add AV extensions
 
 namespace android {
 
@@ -66,6 +73,7 @@ struct AVFactory {
             const uint32_t flags);
     virtual ElementaryStreamQueue* createESQueue(
             ElementaryStreamQueue::Mode mode, uint32_t flags = 0);
+
     virtual CameraSource *CreateCameraSourceFromCamera(
             const sp<hardware::ICamera> &camera,
             const sp<ICameraRecordingProxy> &proxy,
@@ -122,6 +130,7 @@ struct AVUtils {
 
     virtual bool hasAudioSampleBits(const sp<MetaData> &);
     virtual bool hasAudioSampleBits(const sp<AMessage> &);
+
     virtual int getAudioSampleBits(const sp<MetaData> &);
     virtual int getAudioSampleBits(const sp<AMessage> &);
     virtual audio_format_t updateAudioFormat(audio_format_t audioFormat,
@@ -154,8 +163,10 @@ struct AVUtils {
 
     virtual bool isAudioMuxFormatSupported(const char *mime);
     virtual void cacheCaptureBuffers(sp<hardware::ICamera> camera, video_encoder encoder);
+
     virtual void getHFRParams(bool*, int32_t*, sp<AMessage>);
     virtual int64_t overwriteTimeOffset(bool, int64_t, int64_t *, int64_t, int32_t);
+
     virtual const char *getCustomCodecsLocation();
     virtual const char *getCustomCodecsPerformanceLocation();
 

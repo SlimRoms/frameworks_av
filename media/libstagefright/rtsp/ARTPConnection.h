@@ -56,7 +56,6 @@ protected:
     virtual void onMessageReceived(const sp<AMessage> &msg);
     virtual size_t sockAddrSize();
 
-private:
     enum {
         kWhatAddStream,
         kWhatRemoveStream,

@@ -27,30 +27,46 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _AV_MEDIA_EXTENSIONS_H_
-#define _AV_MEDIA_EXTENSIONS_H_
+#define LOG_TAG "AVMediaServiceFactory"
+#include <utils/Log.h>
 
-#include <common/AVExtensionsCommon.h>
-#include <hardware/audio.h>
-#include <media/AudioTrack.h>
+#include <media/stagefright/foundation/ADebug.h>
+#include <media/stagefright/foundation/AMessage.h>
+#include "ARTPConnection.h"
+#include "ARTSPConnection.h"
+
+#include "MediaRecorderClient.h"
+#include "MediaPlayerService.h"
+#include "StagefrightRecorder.h"
+
+#include "common/ExtensionsLoader.hpp"
+#include "mediaplayerservice/AVMediaServiceExtensions.h"
 
 namespace android {
+StagefrightRecorder *AVMediaServiceFactory::createStagefrightRecorder(
+        const String16 &opPackageName) {
+    return new StagefrightRecorder(opPackageName);
+}
 
-class MediaRecorder;
-/*
- * Common delegate to the classes in libstagefright
- */
-struct AVMediaUtils {
+sp<ARTSPConnection> AVMediaServiceFactory::createARTSPConnection(
+        bool uidValid, uid_t uid) {
+    return new ARTSPConnection(uidValid, uid);
+}
 
-    virtual size_t AudioTrackGetOffloadFrameCount(size_t frameCount);
+sp<ARTPConnection> AVMediaServiceFactory::createARTPConnection() {
+    return new ARTPConnection();
+}
 
-    virtual bool AudioTrackIsTrackOffloaded(audio_io_handle_t /*output*/);
+// ----- NO TRESSPASSING BEYOND THIS LINE ------
+AVMediaServiceFactory::AVMediaServiceFactory() {
+}
 
-    // ----- NO TRESSPASSING BEYOND THIS LINE ------
-    DECLARE_LOADABLE_SINGLETON(AVMediaUtils);
-};
+AVMediaServiceFactory::~AVMediaServiceFactory() {
+}
+
+//static
+AVMediaServiceFactory *AVMediaServiceFactory::sInst =
+        ExtensionsLoader<AVMediaServiceFactory>::createInstance("createExtendedMediaServiceFactory");
 
 } //namespace android
-
-#endif //_AV_MEDIA_EXTENSIONS_H_
 
