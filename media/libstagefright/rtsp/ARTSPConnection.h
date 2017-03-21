@@ -56,7 +56,6 @@ protected:
     virtual void performCompleteConnection(const sp<AMessage> &msg,
             int err);
 
-private:
     enum State {
         DISCONNECTED,
         CONNECTING,

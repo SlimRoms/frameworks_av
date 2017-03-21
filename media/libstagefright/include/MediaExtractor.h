@@ -94,10 +94,6 @@ protected:
 
 private:
 
-    typedef bool (*SnifferFunc)(
-            const sp<DataSource> &source, String8 *mimeType,
-            float *confidence, sp<AMessage> *meta);
-
     static Mutex gSnifferMutex;
     static List<SnifferFunc> gSniffers;
     static bool gSniffersRegistered;

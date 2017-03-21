@@ -114,6 +114,8 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_id3 \
         libFLAC \
 
+LOCAL_WHOLE_STATIC_LIBRARIES := libavextensions
+
 LOCAL_SHARED_LIBRARIES += \
         libmedia_helper \
         libstagefright_foundation \
