@@ -26,31 +26,44 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef _AV_MEDIA_EXTENSIONS_H_
-#define _AV_MEDIA_EXTENSIONS_H_
-
-#include <common/AVExtensionsCommon.h>
-#include <hardware/audio.h>
-#include <media/AudioTrack.h>
+#ifndef _AV_EXTENSIONS_COMMON_H_
+#define _AV_EXTENSIONS_COMMON_H_
 
 namespace android {
 
-class MediaRecorder;
-/*
- * Common delegate to the classes in libstagefright
- */
-struct AVMediaUtils {
+static const char * CUSTOMIZATION_LIB_NAME = "libavenhancements.so";
 
-    virtual size_t AudioTrackGetOffloadFrameCount(size_t frameCount);
+typedef void *(*createFunction_t)(void);
 
-    virtual bool AudioTrackIsTrackOffloaded(audio_io_handle_t /*output*/);
+template <typename T>
+struct ExtensionsLoader {
 
-    // ----- NO TRESSPASSING BEYOND THIS LINE ------
-    DECLARE_LOADABLE_SINGLETON(AVMediaUtils);
+    static T *createInstance(const char *createFunctionName);
+
+private:
+    static void loadLib();
+    static createFunction_t loadCreateFunction(const char *createFunctionName);
+    static void *mLibHandle;
 };
+
+/*
+ * Boiler-plate to declare the class as a singleton (with a static getter)
+ * which can be loaded (dlopen'd) via ExtensionsLoader
+ */
+#define DECLARE_LOADABLE_SINGLETON(className)   \
+protected:                                      \
+    className();                                \
+    virtual ~className();                       \
+    static className *sInst;                    \
+private:                                        \
+    className(const className&);                \
+    className &operator=(className &);          \
+public:                                         \
+    static className *get() {                   \
+        return sInst;                           \
+    }                                           \
+    friend struct ExtensionsLoader<className>;
 
 } //namespace android
 
-#endif //_AV_MEDIA_EXTENSIONS_H_
-
+#endif // _AV_EXTENSIONS_COMMON_H_
