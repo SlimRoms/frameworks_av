@@ -48,6 +48,9 @@ LOCAL_STATIC_LIBRARIES :=       \
 
 LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := libmedia
 
+LOCAL_WHOLE_STATIC_LIBRARIES := \
+    libavmediaserviceextensions \
+
 LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libstagefright/include               \
     $(TOP)/frameworks/av/media/libstagefright/rtsp                  \
