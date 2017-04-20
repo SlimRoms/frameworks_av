@@ -1459,6 +1459,16 @@ void NuPlayer::Renderer::onQueueBuffer(const sp<AMessage> &msg) {
     sp<AMessage> notifyConsumed;
     CHECK(msg->findMessage("notifyConsumed", &notifyConsumed));
 
+    bool canResume = false;
+    if (AVNuUtils::get()->isAccurateSeek()) {
+        if (AVNuUtils::get()->dropBufferIfNeeded(buffer, audio, &canResume)) {
+            notifyConsumed->post();
+            return;
+        } else if (canResume && mPaused) {
+            resume();
+        }
+    }
+
     QueueEntry entry;
     entry.mBuffer = buffer;
     entry.mNotifyConsumed = notifyConsumed;
