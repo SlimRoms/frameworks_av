@@ -285,7 +285,7 @@ private:
     void onStart(
             int64_t startPositionUs = -1,
             MediaPlayerSeekMode mode = MediaPlayerSeekMode::SEEK_PREVIOUS_SYNC);
-    void onResume();
+    virtual void onResume();
     void onPause();
 
     bool audioDecoderStillNeeded();
@@ -302,7 +302,7 @@ private:
 
     void processDeferredActions();
 
-    void performSeek(int64_t seekTimeUs, MediaPlayerSeekMode mode);
+    virtual void performSeek(int64_t seekTimeUs, MediaPlayerSeekMode mode);
     void performDecoderFlush(FlushCommand audio, FlushCommand video);
     void performReset();
     void performScanSources();
