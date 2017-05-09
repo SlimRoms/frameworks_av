@@ -437,12 +437,17 @@ MediaCodecSource::MediaCodecSource(
     CHECK(mLooper != NULL);
 
     AString mime;
+    int32_t storeMeta = kMetadataBufferTypeInvalid;
     CHECK(mOutputFormat->findString("mime", &mime));
 
     if (!strncasecmp("video/", mime.c_str(), 6)) {
         mIsVideo = true;
     }
 
+    if (mOutputFormat->findInt32("android._input-metadata-buffer-type", &storeMeta)
+            && storeMeta == kMetadataBufferTypeNativeHandleSource) {
+        mFlags |= FLAG_USE_METADATA_INPUT;
+    }
     if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
         mPuller = new Puller(source);
     }
@@ -681,6 +686,10 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
             // push decoding time for video, or drift time for audio
             if (mIsVideo) {
                 mDecodingTimeQueue.push_back(timeUs);
+                if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
+                    mbuf->meta_data()->setInt64(kKeyTime, timeUs);
+                    AVUtils::get()->addDecodingTimesFromBatch(mbuf, mDecodingTimeQueue);
+                }
             } else {
 #if DEBUG_DRIFT_TIME
                 if (mFirstSampleTimeUs < 0ll) {
