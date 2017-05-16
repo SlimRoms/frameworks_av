@@ -228,13 +228,6 @@ void AudioPolicyService::AudioPolicyClient::onRecordingConfigurationUpdate(
             clientConfig, deviceConfig, patchHandle);
 }
 
-void AudioPolicyService::AudioPolicyClient::onOutputSessionEffectsUpdate(
-        sp<AudioSessionInfo>& info, bool added)
-{
-    mAudioPolicyService->onOutputSessionEffectsUpdate(info, added);
-}
-
-
 audio_unique_id_t AudioPolicyService::AudioPolicyClient::newAudioUniqueId(audio_unique_id_use_t use)
 {
     return AudioSystem::newAudioUniqueId(use);

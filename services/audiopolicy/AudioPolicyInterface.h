@@ -341,8 +341,6 @@ public:
                     const struct audio_config_base *clientConfig,
                     const struct audio_config_base *deviceConfig,
                     audio_patch_handle_t patchHandle) = 0;
-    virtual void onOutputSessionEffectsUpdate(sp<AudioSessionInfo>& streamInfo, bool added) = 0;
-
 };
 
 #ifndef USE_LEGACY_AUDIO_POLICY
