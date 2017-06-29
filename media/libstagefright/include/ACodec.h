@@ -574,6 +574,20 @@ private:
     // Send EOS on input stream.
     void onSignalEndOfInputStream();
 
+    virtual void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE *mpeg4type) {}
+    virtual void setBFrames(OMX_VIDEO_PARAM_AVCTYPE *h264type,
+        const int32_t iFramesInterval, const int32_t frameRate) {}
+
+    virtual status_t getVQZIPInfo(const sp<AMessage> &msg) {
+        return OK;
+    }
+
+    virtual bool getDSModeHint(const sp<AMessage>& msg, int64_t timeUs) {
+        return false;
+    }
+
+    sp<IOMXObserver> createObserver();
+
     // Force EXEC->IDLE->LOADED shutdown sequence if not stale.
     void forceStateTransition(int generation);
 
