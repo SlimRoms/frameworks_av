@@ -168,6 +168,10 @@ bool AVUtils::IsHevcIDR(const sp<ABuffer> &) {
    return false;
 }
 
+sp<AMessage> AVUtils::fillExtradata(sp<MediaCodecBuffer>&, sp<AMessage> &format) {
+    return format;
+}
+
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
 AVUtils::AVUtils() {}
 
