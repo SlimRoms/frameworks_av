@@ -31,6 +31,7 @@
 
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/MediaExtractor.h>
+#include <media/stagefright/SharedMemoryBuffer.h>
 #include <common/AVExtensionsCommon.h>
 #include <system/audio.h>
 #include <media/IOMX.h>
@@ -166,6 +167,8 @@ struct AVUtils {
 
     // Used by ATSParser
     virtual bool IsHevcIDR(const sp<ABuffer> &accessUnit);
+
+    virtual sp<AMessage> fillExtradata(sp<MediaCodecBuffer>&, sp<AMessage> &format);
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVUtils);
