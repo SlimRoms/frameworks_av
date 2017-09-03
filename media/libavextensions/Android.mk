@@ -14,8 +14,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/external/flac/include \
-        $(TOP)/system/core/base/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/system/core/base/include
 
 LOCAL_SHARED_LIBRARIES += \
         libhidlbase \
@@ -56,8 +55,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/external/flac/include \
-        $(TOP)/system/core/base/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/system/core/base/include
 
 LOCAL_SHARED_LIBRARIES += \
         libhidlbase \
