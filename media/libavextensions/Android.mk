@@ -17,6 +17,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/system/core/base/include
 
 LOCAL_SHARED_LIBRARIES += \
+        libcrypto \
         libhidlbase \
         liblog \
         libui \
