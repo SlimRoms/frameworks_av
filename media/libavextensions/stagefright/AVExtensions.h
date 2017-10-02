@@ -31,20 +31,13 @@
 
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/MediaExtractor.h>
-<<<<<<< HEAD
 #include <media/stagefright/SharedMemoryBuffer.h>
-=======
->>>>>>> fd64a9e... Stagefright: Make classes customizable and add AV extensions
 #include <common/AVExtensionsCommon.h>
 #include <system/audio.h>
 #include <media/IOMX.h>
 #include <camera/android/hardware/ICamera.h>
 #include <media/mediarecorder.h>
-<<<<<<< HEAD
 #include "ESQueue.h"
-=======
-
->>>>>>> fd64a9e... Stagefright: Make classes customizable and add AV extensions
 
 namespace android {
 
