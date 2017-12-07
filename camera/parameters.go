@@ -14,41 +14,39 @@
 package slim;
 
 import (
-  "android/soong/android"
-  "android/soong/cc"
-
-  "github.com/google/blueprint"
+	"android/soong/android"
+	"android/soong/cc"
 )
 
 func init() {
-  android.RegisterModuleType("camera_parameters_defaults", cameraParametersFactory)
+	android.RegisterModuleType("camera_parameters_defaults", cameraParametersFactory)
 }
 
-func cameraParametersFactory() (blueprint.Module, []interface{}) {
-  module, props := cc.DefaultsFactory()
-  android.AddLoadHook(module, cameraParameters)
+func cameraParametersFactory() android.Module {
+	module := cc.DefaultsFactory()
+	android.AddLoadHook(module, cameraParameters)
 
-  return module, props
+	return module
 }
 
 func cameraParameters(ctx android.LoadHookContext) {
-  type props struct {
-    Whole_static_libs []string
-  }
+	type props struct {
+		Whole_static_libs []string
+	}
 
-  p := &props{}
-  p.Whole_static_libs = globalDefaults(ctx)
+	p := &props{}
+	p.Whole_static_libs = globalDefaults(ctx)
 
-  ctx.AppendProperties(p)
+	ctx.AppendProperties(p)
 }
 
-func globalDefaults(ctx android.BaseContext) ([]string) {
-  var staticLibs []string
+func globalDefaults(ctx android.BaseContext) []string {
+	var staticLibs []string
 
-  device_camera_parameters_lib := ctx.DeviceConfig().SpecificCameraParametersLibrary()
-  if (len(device_camera_parameters_lib) > 0) {
-    staticLibs = append(staticLibs, device_camera_parameters_lib)
-  }
+	device_camera_parameters_lib := ctx.DeviceConfig().SpecificCameraParametersLibrary()
+	if len(device_camera_parameters_lib) > 0 {
+		staticLibs = append(staticLibs, device_camera_parameters_lib)
+	}
 
-  return staticLibs
+	return staticLibs
 }
