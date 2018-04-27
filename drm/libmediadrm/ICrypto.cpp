@@ -369,10 +369,6 @@ status_t BnCrypto::onTransact(
                     android_errorWriteLog(0x534e4554, "71389378");
                     return OK;
                 }
-            } else {
-                reply->writeInt32(BAD_VALUE);
-                android_errorWriteLog(0x534e4554, "70526702");
-                return OK;
             }
 
             AString errorDetailMsg;
