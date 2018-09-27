@@ -311,7 +311,6 @@ class Camera3Stream :
      *
      */
     status_t         getBuffer(camera3_stream_buffer *buffer,
-            nsecs_t waitBufferTimeout,
             const std::vector<size_t>& surface_ids = std::vector<size_t>());
 
     /**
